@@ -57,7 +57,15 @@ Inspired by [openai/symphony](https://github.com/openai/symphony)
 3. They finish and post their results. Then you read what they say, manually check whether the job was really done, add a comment if it's wrong so they can continue — or close it entirely.
 4. Then you either tell your orchestrator to look again, let your script pick it up, or set it on cron — whatever fits. It's up to you how you orchestrate your agent flow.
 
-The intention is that you're never fully decoupled from the work. Forget charts and harnesses: you operate on the board itself, and nothing else.
+The intention is that you're decoupled from managing multiple windows/TUIs and so on. 
+Forget charts and harnesses: you operate on the board itself, and nothing else.
+
+1. Write 10 tickets, explain all you want.
+2. Make agents look around and come back with answers right there — if blocked, or done already.
+3. Comment/close/repeat...
+
+Note: don't forget to isolate in worktrees and not let them skip typical workflow parts like tests, commits, external reviews and so on.
+
 
 ---
 

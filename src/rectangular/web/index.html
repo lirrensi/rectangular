@@ -20,6 +20,11 @@
   .tabs { display: flex; gap: 6px; background: var(--panel); padding: 4px; }
   .tab { border: none; background: transparent; color: var(--dim); padding: 8px 16px; cursor: pointer; font-size: 14px; font-weight: 600; }
   .tab.active { background: var(--panel2); color: var(--text); }
+  .search { display: flex; align-items: center; gap: 8px; }
+  .search input { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; width: 220px; font-size: 13px; }
+  .search input:focus { border-color: var(--accent); }
+  .search .clear { background: transparent; border: none; color: var(--dim); cursor: pointer; font-size: 14px; padding: 4px; }
+  .search .clear:hover { color: var(--text); }
   .new-ticket { margin-left: auto; display: flex; gap: 8px; align-items: center; }
   .new-ticket input { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; width: 340px; }
   .new-ticket button { background: var(--accent); border: none; color: white; padding: 8px 16px; cursor: pointer; font-weight: 600; }
@@ -74,9 +79,16 @@
       <button class="tab" :class="{'active': tab === 'active'}" @click="switchTab('active')">
         Active <span x-text="counts.active"></span>
       </button>
+      <button class="tab" :class="{'active': tab === 'review'}" @click="switchTab('review')">
+        Review <span x-text="counts.review"></span>
+      </button>
       <button class="tab" :class="{'active': tab === 'done'}" @click="switchTab('done')">
         Done <span x-text="counts.done"></span>
       </button>
+    </div>
+    <div class="search">
+      <input x-model="query" @keydown.escape="query = ''" placeholder="Search titles & comments...">
+      <button class="clear" x-show="query" @click="query = ''">✕</button>
     </div>
     <div class="new-ticket">
       <div class="full-access" @click="toggleFullAccess()" title="Full Access Mode: lets agents delete/edit too">
@@ -89,7 +101,7 @@
   </header>
 
   <main>
-    <template x-for="day in days" :key="day.day">
+    <template x-for="day in filteredDays" :key="day.day">
       <div class="day">
         <h2 x-text="day.label"></h2>
         <template x-for="t in day.tickets" :key="t.id">
@@ -137,7 +149,8 @@
         </template>
       </div>
     </template>
-    <div class="empty" x-show="days.length === 0" x-text="tab === 'active' ? 'No active tickets. Dump something above. 🎉' : 'Nothing done yet. Go make me proud.'"></div>
+    <div class="empty" x-show="filteredDays.length === 0"
+         x-text="tab === 'active' ? (query ? 'No matches. Search again, buttercup.' : 'No active tickets. Dump something above. 🎉') : (tab === 'review' ? (query ? 'No matches. Search again, buttercup.' : 'All caught up. Nothing needs your eyes. 💅') : (query ? 'No matches. Search again, buttercup.' : 'Nothing done yet. Go make me proud.'))"></div>
   </main>
 </div>
 
@@ -146,7 +159,7 @@ function rectApp() {
   return {
     tab: 'active',
     days: [],
-    counts: { active: 0, done: 0 },
+    counts: { active: 0, review: 0, done: 0 },
     cwd: '',
     openId: null,
     newTitle: '',
@@ -154,10 +167,26 @@ function rectApp() {
     editTicketId: null,
     editTitleVal: '',
     fullAccess: false,
+    query: '',
 
     async init() {
       await this.loadSettings();
       await this.load();
+    },
+
+    get filteredDays() {
+      const q = this.query.trim().toLowerCase();
+      if (!q) return this.days;
+      return this.days
+        .map(day => {
+          const tickets = day.tickets.filter(t => {
+            const title = (t.title || '').toLowerCase();
+            const comments = (t.messages || []).map(m => (m.body || '').toLowerCase()).join(' ');
+            return title.includes(q) || comments.includes(q);
+          });
+          return tickets.length ? { ...day, tickets } : null;
+        })
+        .filter(Boolean);
     },
 
     async loadSettings() {
@@ -177,10 +206,13 @@ function rectApp() {
     switchTab(t) { this.tab = t; this.openId = null; this.load(); },
 
     async load() {
-      const r = await fetch('/api/tickets?done=' + (this.tab === 'done'));
+      const params = new URLSearchParams();
+      if (this.tab === 'done') params.set('done', 'true');
+      if (this.tab === 'review') params.set('review', 'true');
+      const r = await fetch('/api/tickets?' + params.toString());
       this.days = await r.json();
       const s = await (await fetch('/api/status')).json();
-      this.counts = { active: s.active_count, done: s.done_count };
+      this.counts = { active: s.active_count, review: s.review_count, done: s.done_count };
       this.cwd = s.cwd || '';
     },
 

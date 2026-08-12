@@ -214,7 +214,27 @@ def test_status_summary_counts_needs_review():
     core.add_ticket("two")
     s = core.status_summary()
     assert s["active_count"] == 2
+    assert s["review_count"] == 1
     assert len(s["needs_review"]) == 1
+
+
+def test_list_tickets_review_filter_only_needs_review():
+    core.add_ticket("one")
+    core.message(1, core.ROLE_ASSISTANT, "check me")  # needs review
+    core.add_ticket("two")  # empty, no review needed
+    core.add_ticket("three")
+    core.message(3, core.ROLE_ASSISTANT, "hi")
+    core.message(3, core.ROLE_USER, "thanks")  # user last → not needs review
+    review = core.list_tickets(review=True)
+    assert [t["no"] for t in review] == ["T-0001"]
+    assert review[0]["needs_review"] is True
+
+
+def test_list_tickets_review_never_includes_done():
+    core.add_ticket("one")
+    core.message(1, core.ROLE_ASSISTANT, "check me")
+    core.close(1, role="user")
+    assert core.list_tickets(review=True) == []
 
 
 def test_group_by_day_puts_needs_review_first():

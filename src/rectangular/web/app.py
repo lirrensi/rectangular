@@ -59,6 +59,15 @@ def index() -> str:
     return (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
 
 
+@app.get("/favicon.ico", response_class=HTMLResponse)
+def favicon() -> str:
+    """Square purple rectangle — the brand, literally."""
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+        '<rect width="16" height="16" fill="#8b5cf6"/></svg>'
+    )
+
+
 @app.get("/alpine.min.js", response_class=HTMLResponse)
 def alpine() -> str:
     """Vendored Alpine build — works with no internet/CDN access."""
@@ -73,8 +82,8 @@ def api_status() -> dict[str, Any]:
 
 
 @app.get("/api/tickets")
-def api_list(done: bool = False) -> list[dict[str, Any]]:
-    return core.group_by_day(core.list_tickets(done=done))
+def api_list(done: bool = False, review: bool = False) -> list[dict[str, Any]]:
+    return core.group_by_day(core.list_tickets(done=done, review=review))
 
 
 @app.get("/api/tickets/{ref}")

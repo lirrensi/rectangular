@@ -120,10 +120,16 @@ def _needs_review(messages: list[dict[str, Any]]) -> bool:
     return messages[-1]["role"] != ROLE_USER
 
 
-def list_tickets(done: bool = False, limit: int | None = None) -> list[dict[str, Any]]:
+def list_tickets(
+    done: bool = False,
+    review: bool = False,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
     """Sequential list. Active by default, Done when done=True.
 
-    Ordered newest first; within a day the needs-review tickets float to top.
+    review=True returns only ACTIVE tickets whose last message came from a
+    worker (needs_review) — the "under review" filter. Ordered newest first;
+    within a day the needs-review tickets float to top.
     """
     conn = db.connect()
     try:
@@ -136,6 +142,8 @@ def list_tickets(done: bool = False, limit: int | None = None) -> list[dict[str,
             t = _ticket_row(r)
             t["messages"] = _messages(conn, r["id"])
             t["needs_review"] = _needs_review(t["messages"])
+            if review and not t["needs_review"]:
+                continue
             tickets.append(t)
         if limit is not None:
             tickets = tickets[:limit]
@@ -169,10 +177,12 @@ def group_by_day(tickets: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def status_summary() -> dict[str, Any]:
     active = list_tickets(done=False)
     done = list_tickets(done=True)
+    review = [t for t in active if t["needs_review"]]
     return {
         "active_count": len(active),
         "done_count": len(done),
-        "needs_review": [t for t in active if t["needs_review"]],
+        "review_count": len(review),
+        "needs_review": review,
         "peek": active[:10],
     }
 
