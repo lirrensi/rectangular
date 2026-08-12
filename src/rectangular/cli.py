@@ -221,6 +221,31 @@ def read_cmd(ref: str, json_output: bool) -> None:
     _render_thread(t)
 
 
+@main.command("search")
+@click.argument("query")
+@click.option("--limit", type=int, default=20, help="Max results (default 20)")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+def search_cmd(query: str, limit: int, json_output: bool) -> None:
+    """Fuzzy full-text search across titles + comments (active and done)."""
+    try:
+        tickets = core.search(query, limit=limit)
+    except ValueError as e:
+        console.print(str(e), style="red")
+        sys.exit(1)
+    if json_output:
+        click.echo(json.dumps(tickets, indent=2, default=str))
+        return
+    if not tickets:
+        console.print("(no matches)")
+        return
+    for t in tickets:
+        review = " 👁" if t["needs_review"] else ""
+        state = "done" if t["state"] == core.STATE_DONE else "active"
+        console.print(
+            f"  [{t['no']}] ({state:<6}) {t['status'] or '-':<12} {t['title']}{review}"
+        )
+
+
 @main.command()
 @click.argument("title")
 @_role_option

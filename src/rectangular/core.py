@@ -391,3 +391,90 @@ def update_ticket(
         return get_ticket(ticket_id, conn=conn)
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Search — FTS5 trigram index, born in the schema. No DB spelunking needed.
+# ---------------------------------------------------------------------------
+
+
+def _fts_match_query(query: str) -> str:
+    """Turn a free-form query into an FTS5 MATCH string.
+
+    Each whitespace-separated term becomes a prefix match (trailing `*`), so
+    'quic' matches 'quick'. Trigram tokenizer handles substring matching
+    natively for >=3-char terms; shorter terms fall back to LIKE in search().
+    """
+    terms = [t for t in query.strip().lower().split() if t]
+    if not terms:
+        raise ValueError("Search query cannot be empty.")
+    parts = []
+    for t in terms:
+        t = "".join(ch for ch in t if ch.isalnum() or ch in " _-")
+        if not t:
+            continue
+        parts.append(f'"{t}"*')
+    if not parts:
+        raise ValueError("Search query cannot be empty.")
+    return " AND ".join(parts)
+
+
+def search(query: str, limit: int | None = None) -> list[dict[str, Any]]:
+    """Full-text search across titles AND comment bodies (active + done).
+
+    Fuzzy-friendly: prefix matching via FTS5 trigram. Short terms (<3 chars)
+    that trigram can't handle fall back to a LIKE scan of titles + bodies.
+    Results ordered by relevance (bm25), newest ticket first on ties.
+    """
+    match = _fts_match_query(query)
+    conn = db.connect()
+    try:
+        rows = conn.execute(
+            "SELECT rowid FROM tickets_fts WHERE tickets_fts MATCH ? "
+            "ORDER BY bm25(tickets_fts) LIMIT ?",
+            (match, limit if limit is not None else 1000),
+        ).fetchall()
+        ids = [r["rowid"] for r in rows]
+
+        # Short terms (1-2 chars) aren't indexed by trigram — LIKE fallback.
+        short = [t for t in query.strip().lower().split() if len(t) < 3]
+        if short or not ids:
+            like = _like_search(conn, query.strip().lower(), ids)
+            for tid in like:
+                if tid not in ids:
+                    ids.append(tid)
+
+        tickets = []
+        for tid in ids:
+            row = conn.execute("SELECT * FROM tickets WHERE id = ?", (tid,)).fetchone()
+            if row is None:
+                continue
+            t = _ticket_row(row)
+            t["messages"] = _messages(conn, tid)
+            t["needs_review"] = _needs_review(t["messages"])
+            tickets.append(t)
+        return tickets
+    finally:
+        conn.close()
+
+
+def _like_search(conn: sqlite3.Connection, query: str, existing_ids: list[int]) -> list[int]:
+    """LIKE-based fallback: titles + bodies containing every term."""
+    terms = [t for t in query.split() if t]
+    if not terms:
+        return []
+    title_rows = conn.execute("SELECT id, title FROM tickets").fetchall()
+    msg_rows = conn.execute(
+        "SELECT DISTINCT ticket_id, body FROM messages"
+    ).fetchall()
+    hits: list[int] = []
+    for row in title_rows:
+        hay = (row["title"] or "").lower()
+        if all(t in hay for t in terms) and row["id"] not in hits:
+            hits.append(row["id"])
+    for row in msg_rows:
+        hay = (row["body"] or "").lower()
+        if all(t in hay for t in terms) and row["ticket_id"] not in hits:
+            hits.append(row["ticket_id"])
+    # FTS matches keep their relevance order; LIKE-only hits come after.
+    return sorted(set(hits), key=lambda tid: (existing_ids.index(tid) if tid in existing_ids else 10**9))

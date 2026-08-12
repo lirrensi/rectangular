@@ -311,99 +311,88 @@ def test_delete_message_permissions():
 
 
 # ---------------------------------------------------------------------------
-# Migration: legacy v1 (comments+author) and v2 (approved flag) → v3
+# Search: FTS5 trigram, born in the schema (no migration ladder — baby app).
 # ---------------------------------------------------------------------------
 
 
-def test_migrate_legacy_comments_and_approved_to_state(tmp_path, monkeypatch):
-    import sqlite3
-
-    monkeypatch.chdir(tmp_path)
-    # Build a legacy v2 DB by hand: comments table with author, tickets with approved
-    (tmp_path / ".rect").mkdir()
-    conn = sqlite3.connect(tmp_path / ".rect" / "rect.db")
-    conn.execute(
-        "CREATE TABLE tickets ("
-        " id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT '',"
-        " approved INTEGER NOT NULL DEFAULT 0, pending_approval INTEGER NOT NULL DEFAULT 0,"
-        " created_by TEXT NOT NULL DEFAULT 'user', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"
-    )
-    conn.execute(
-        "CREATE TABLE comments ("
-        " id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL,"
-        " author TEXT NOT NULL, body TEXT NOT NULL, status_after TEXT,"
-        " approval_action TEXT, created_at TEXT NOT NULL)"
-    )
-    conn.execute(
-        "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
-    )
-    conn.execute(
-        "INSERT INTO tickets (id, title, status, approved, pending_approval, created_at, updated_at) "
-        "VALUES (1, 'done one', '', 1, 0, 'x', 'x'), (2, 'active one', '', 0, 1, 'x', 'x')"
-    )
-    conn.execute(
-        "INSERT INTO comments (ticket_id, author, body, approval_action, created_at) "
-        "VALUES (1, 'agent', 'legacy msg', 'approve', 'x')"
-    )
-    conn.commit()
-    conn.close()
-
-    done_t = core.get_ticket(1)
-    assert done_t["state"] == "done"
-    assert done_t["messages"][0]["role"] == "system"
-    assert done_t["messages"][0]["action"] == "close"  # 'approve' → 'close'
-
-    active_t = core.get_ticket(2)
-    assert active_t["state"] == "active"  # pending_approval no longer exists
-    assert "approved" not in active_t
-    assert "pending_approval" not in active_t
+def test_search_matches_title():
+    core.add_ticket("quick search in the UI")
+    core.add_ticket("happy dancing meow")
+    hits = core.search("search")
+    assert [h["no"] for h in hits] == ["T-0001"]
 
 
-def test_schema_version_stamped_on_fresh_db(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    core.add_ticket("one")
-    conn = db.connect()
-    try:
-        assert db.schema_version(conn) == db.SCHEMA_VERSION
-        assert db.SCHEMA_VERSION == 3
-    finally:
-        conn.close()
+def test_search_matches_comment_body():
+    t = core.add_ticket("some title")
+    core.message(t["id"], role="user", body="the header or comment has this word")
+    hits = core.search("dragonfruit")
+    assert hits == []  # word is in neither title nor comment
+    hits = core.search("header")
+    assert [h["no"] for h in hits] == ["T-0001"]  # matched via comment body
 
 
-def test_legacy_db_stamped_with_current_version(tmp_path, monkeypatch):
-    import sqlite3
+def test_search_comment_body_and_title():
+    t = core.add_ticket("dragonfruit smoothie")
+    core.message(t["id"], role="user", body="taste the rainbow")
+    hits = core.search("rainbow")
+    assert [h["no"] for h in hits] == ["T-0001"]
+    hits = core.search("dragonfruit")
+    assert [h["no"] for h in hits] == ["T-0001"]
 
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / ".rect").mkdir()
-    conn = sqlite3.connect(tmp_path / ".rect" / "rect.db")
-    conn.execute(
-        "CREATE TABLE tickets ("
-        " id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT '',"
-        " approved INTEGER NOT NULL DEFAULT 0, pending_approval INTEGER NOT NULL DEFAULT 0,"
-        " created_by TEXT NOT NULL DEFAULT 'user', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"
-    )
-    conn.execute(
-        "CREATE TABLE comments ("
-        " id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL,"
-        " author TEXT NOT NULL, body TEXT NOT NULL, status_after TEXT,"
-        " approval_action TEXT, created_at TEXT NOT NULL)"
-    )
-    conn.execute(
-        "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
-    )
-    conn.execute(
-        "INSERT INTO tickets (id, title, status, approved, created_at, updated_at) "
-        "VALUES (1, 'old', '', 0, 'x', 'x')"
-    )
-    conn.commit()
-    conn.close()
 
-    core.add_ticket("new")  # triggers migration
-    conn = db.connect()
-    try:
-        assert db.schema_version(conn) == db.SCHEMA_VERSION == 3
-    finally:
-        conn.close()
+def test_search_is_fuzzy_prefix():
+    core.add_ticket("quick search in the UI")
+    core.add_ticket("happy dancing meow")
+    hits = core.search("quic")
+    assert [h["no"] for h in hits] == ["T-0001"]
+
+
+def test_search_matches_across_done_tickets():
+    t = core.add_ticket("archive me later")
+    core.close(t["id"])
+    hits = core.search("archive")
+    assert [h["no"] for h in hits] == ["T-0001"]
+    assert hits[0]["state"] == "done"
+
+
+def test_search_no_match_returns_empty():
+    core.add_ticket("alpha beta")
+    assert core.search("omega") == []
+
+
+def test_search_short_query_uses_like_fallback():
+    core.add_ticket("meow mix")
+    # trigram needs >=3 chars; short terms must fall back to LIKE
+    hits = core.search("me")
+    assert [h["no"] for h in hits] == ["T-0001"]
+
+
+def test_search_rebuilds_after_message_delete():
+    t = core.add_ticket("privacy")
+    core.message(t["id"], role="user", body="sensitive secret word")
+    assert core.search("secret")
+    # delete the only message → FTS row body becomes empty via trigger
+    msgs = core.get_ticket(t["id"])["messages"]
+    core.delete_message(msgs[0]["id"], role="user")
+    assert core.search("secret") == []
+
+
+def test_search_reflects_title_rename():
+    t = core.add_ticket("old name")
+    core.update_ticket(t["id"], title="new title", role="user")
+    assert core.search("new")[0]["no"] == "T-0001"
+    assert core.search("old") == []
+
+
+def test_search_returns_rich_ticket_shape():
+    t = core.add_ticket("shape check")
+    core.message(t["id"], role="assistant", body="agent reply")
+    hit = core.search("shape")[0]
+    assert hit["no"] == "T-0001"
+    assert hit["state"] == "active"
+    assert hit["title"] == "shape check"
+    assert hit["needs_review"] is True  # last message from a worker
+
 
 # ---------------------------------------------------------------------------
 # RECTANGULAR LAW: no curves. border-radius is forbidden.

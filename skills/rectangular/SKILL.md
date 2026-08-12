@@ -31,6 +31,9 @@ rect comment T-0001 "text" --status "in progress"
 rect close T-0001                # state → done. USER-ONLY unless full-access on
 rect reopen T-0001               # state → active. USER-ONLY unless full-access on
 rect full-access on|off          # enables agents to close/reopen/delete
+rect search "fuzzy term"         # full-text search across titles + comments
+                                 # (active AND done). Fuzzy: 'quic' finds 'quick'.
+                                 # Include a ticket ref (T-XXXX) if you know it.
 ```
 
 ## The one rule that matters

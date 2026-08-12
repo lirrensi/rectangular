@@ -46,7 +46,71 @@ CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Full-text search. Trigram tokenizer = fuzzy substring matching for free.
+-- rowid mirrors tickets.id; title + body (concatenated message bodies) are
+-- kept in sync by triggers below. Triggers + table are idempotent.
+CREATE VIRTUAL TABLE IF NOT EXISTS tickets_fts USING fts5(
+    title, body,
+    tokenize = 'trigram'
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_fts_ai AFTER INSERT ON tickets BEGIN
+  INSERT INTO tickets_fts(rowid, title, body) VALUES (NEW.id, NEW.title, '');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_fts_au AFTER UPDATE OF title ON tickets BEGIN
+  UPDATE tickets_fts SET title = NEW.title WHERE rowid = OLD.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_fts_ad AFTER DELETE ON tickets BEGIN
+  DELETE FROM tickets_fts WHERE rowid = OLD.id;
+END;
+
+-- Message changes rebuild that ticket's FTS row (body = all messages).
+CREATE TRIGGER IF NOT EXISTS trg_fts_msg_ai AFTER INSERT ON messages BEGIN
+  DELETE FROM tickets_fts WHERE rowid = NEW.ticket_id;
+  INSERT INTO tickets_fts(rowid, title, body)
+  SELECT t.id, t.title, COALESCE(
+    (SELECT group_concat(m.body, ' ') FROM messages m WHERE m.ticket_id = t.id), '')
+  FROM tickets t WHERE t.id = NEW.ticket_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_fts_msg_au AFTER UPDATE OF body ON messages BEGIN
+  DELETE FROM tickets_fts WHERE rowid = NEW.ticket_id;
+  INSERT INTO tickets_fts(rowid, title, body)
+  SELECT t.id, t.title, COALESCE(
+    (SELECT group_concat(m.body, ' ') FROM messages m WHERE m.ticket_id = t.id), '')
+  FROM tickets t WHERE t.id = NEW.ticket_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_fts_msg_ad AFTER DELETE ON messages BEGIN
+  DELETE FROM tickets_fts WHERE rowid = OLD.ticket_id;
+  INSERT INTO tickets_fts(rowid, title, body)
+  SELECT t.id, t.title, COALESCE(
+    (SELECT group_concat(m.body, ' ') FROM messages m WHERE m.ticket_id = t.id), '')
+  FROM tickets t WHERE t.id = OLD.ticket_id;
+END;
 """
+
+
+def _backfill_fts(conn: sqlite3.Connection) -> None:
+    """One-time index of existing tickets for DBs created pre-search.
+
+    FTS5 has no INSERT OR REPLACE; clear-and-rebuild is idempotent and cheap
+    at this scale. Runs only when row counts diverge.
+    """
+    n_tickets = conn.execute("SELECT COUNT(*) FROM tickets").fetchone()[0]
+    n_fts = conn.execute("SELECT COUNT(*) FROM tickets_fts").fetchone()[0]
+    if n_tickets != n_fts:
+        conn.execute("DELETE FROM tickets_fts")
+        conn.execute(
+            "INSERT INTO tickets_fts(rowid, title, body) "
+            "SELECT t.id, t.title, COALESCE("
+            "(SELECT group_concat(m.body, ' ') FROM messages m WHERE m.ticket_id = t.id), '') "
+            "FROM tickets t"
+        )
+        conn.commit()
 
 
 def rect_dir() -> Path:
@@ -79,95 +143,29 @@ def ensure_rect_dir() -> Path:
     return d
 
 
-# Current schema version. Bump + add a migration step when the schema changes.
-SCHEMA_VERSION = 3
+# Schema version (informational only — schema is idempotent; no ladder).
+SCHEMA_VERSION = 4
 
 
 def connect() -> sqlite3.Connection:
-    """Open a connection, creating .rect/ and the schema on first use."""
+    """Open a connection, creating .rect/ and the schema on first use.
+
+    The schema is born-complete (idempotent CREATE IF NOT EXISTS + FTS5
+    triggers), so no migration ladder is needed. The only "migration" is a
+    one-time FTS backfill for DBs created before search existed.
+    """
     d = ensure_rect_dir()
     conn = sqlite3.connect(d / DB_FILE_NAME)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    _migrate(conn)
     conn.executescript(_SCHEMA)
+    _backfill_fts(conn)
     _seed_settings(conn)
     return conn
 
 
 def schema_version(conn: sqlite3.Connection) -> int:
     return conn.execute("PRAGMA user_version").fetchone()[0]
-
-
-def _table_cols(conn: sqlite3.Connection, table: str) -> set[str]:
-    return {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
-
-
-def _set_version(conn: sqlite3.Connection, version: int) -> None:
-    conn.execute(f"PRAGMA user_version = {int(version)}")
-    conn.commit()
-
-
-def _migrate(conn: sqlite3.Connection) -> None:
-    """Bring the DB up to SCHEMA_VERSION.
-
-    Version 0 means either a fresh DB or a legacy DB created before
-    versioning existed. The legacy path infers shape (columns/tables);
-    from there on, every future change is an explicit `if version < N` step.
-    """
-    version = schema_version(conn)
-
-    if version == 0:
-        _migrate_legacy(conn)
-        version = SCHEMA_VERSION
-
-    # Future migrations, e.g.:
-    # if version < 4:
-    #     _migrate_3_to_4(conn)
-    #     version = 4
-
-    _set_version(conn, version)
-
-
-def _migrate_legacy(conn: sqlite3.Connection) -> None:
-    """Shape-inferred catch-all: bring any pre-versioning DB to v3."""
-    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-
-    # ---- v1 → v2: comments(author) → messages(role, name) ----
-    if "comments" in tables and "messages" not in tables:
-        conn.execute("ALTER TABLE comments RENAME TO messages")
-        try:
-            conn.execute("ALTER TABLE messages ADD COLUMN name TEXT")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            conn.execute("ALTER TABLE messages RENAME COLUMN author TO role")
-        except sqlite3.OperationalError:
-            pass
-        conn.execute("UPDATE messages SET role = 'system' WHERE role = 'agent'")
-        conn.commit()
-
-    # ---- messages: approval_action → action (re-check after possible rename) ----
-    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-    if "messages" in tables:
-        mcols = _table_cols(conn, "messages")
-        if "action" not in mcols and "approval_action" in mcols:
-            conn.execute("ALTER TABLE messages RENAME COLUMN approval_action TO action")
-            conn.execute("UPDATE messages SET action = 'close' WHERE action = 'approve'")
-            conn.execute("UPDATE messages SET action = 'reopen' WHERE action = 'unapprove'")
-            conn.commit()
-
-    # ---- v2 → v3: tickets.approved/pending_approval → tickets.state ----
-    if "tickets" in tables:
-        cols = _table_cols(conn, "tickets")
-        if "state" not in cols:
-            conn.execute("ALTER TABLE tickets ADD COLUMN state TEXT NOT NULL DEFAULT 'active'")
-        if "approved" in cols:
-            conn.execute("UPDATE tickets SET state = 'done' WHERE approved = 1")
-            conn.execute("ALTER TABLE tickets DROP COLUMN approved")
-        if "pending_approval" in cols:
-            conn.execute("ALTER TABLE tickets DROP COLUMN pending_approval")
-        conn.commit()
 
 
 def _seed_settings(conn: sqlite3.Connection) -> None:
