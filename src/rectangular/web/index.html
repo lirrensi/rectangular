@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rectangular</title>
+<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --border: #2a2f3a;
+    --text: #e6e8ee; --dim: #8b93a3; --accent: #8b5cf6; --green: #34d399; --amber: #fbbf24;
+    --user: #8b5cf6; --agent: #22d3ee;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; min-height: 100vh; }
+  header { display: flex; align-items: center; gap: 16px; padding: 16px 24px; border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 18px; font-weight: 700; }
+  .tabs { display: flex; gap: 6px; background: var(--panel); padding: 4px; border-radius: 10px; }
+  .tab { border: none; background: transparent; color: var(--dim); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; }
+  .tab.active { background: var(--panel2); color: var(--text); }
+  .new-ticket { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .new-ticket input { background: var(--panel); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 8px 12px; width: 340px; }
+  .new-ticket button { background: var(--accent); border: none; color: white; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-weight: 600; }
+  .full-access { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); cursor: pointer; user-select: none; }
+  .full-access .switch { width: 34px; height: 18px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--border); position: relative; transition: background .15s; }
+  .full-access .switch.on { background: var(--amber); border-color: var(--amber); }
+  .full-access .switch .knob { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--text); transition: left .15s; }
+  .full-access .switch.on .knob { left: 18px; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px; }
+  .day { margin-bottom: 28px; }
+  .day h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin-bottom: 10px; }
+  .ticket { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 10px; overflow: hidden; }
+  .ticket-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; cursor: pointer; }
+  .ticket-head:hover { background: var(--panel2); }
+  .id { color: var(--accent); font-weight: 700; font-size: 13px; min-width: 58px; }
+  .title { flex: 1; font-weight: 600; }
+  .status { background: var(--panel2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--dim); }
+  .pending { background: rgba(251,191,36,.12); border-color: var(--amber); color: var(--amber); }
+  .done { background: rgba(52,211,153,.12); border-color: var(--green); color: var(--green); }
+  .chat { border-top: 1px solid var(--border); padding: 12px 16px; }
+  .msg { margin-bottom: 12px; }
+  .msg .meta { font-size: 12px; color: var(--dim); margin-bottom: 3px; }
+  .msg .meta .who { font-weight: 700; }
+  .who.user { color: var(--user); } .who.assistant { color: var(--agent); } .who.system { color: var(--amber); }
+  .msg .body { font-size: 14px; line-height: 1.45; white-space: pre-wrap; }
+  .msg .extra { font-size: 12px; color: var(--dim); margin-top: 2px; }
+  .reply { display: flex; gap: 8px; padding-top: 10px; border-top: 1px dashed var(--border); }
+  .reply input { flex: 1; background: var(--panel2); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 8px 12px; }
+  .reply button { background: var(--panel2); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 8px 12px; cursor: pointer; font-weight: 600; }
+  .reply .approve { background: var(--green); border-color: var(--green); color: #04231a; }
+  .ticket-actions { display: flex; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); align-items: center; }
+  .ticket-actions button { background: transparent; border: 1px solid var(--border); color: var(--dim); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
+  .ticket-actions button:hover { border-color: var(--accent); color: var(--text); }
+  .ticket-actions .danger:hover { border-color: #ef4444; color: #ef4444; }
+  .ticket-actions input { flex: 1; background: var(--panel2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 10px; font-size: 12px; }
+  .empty { color: var(--dim); text-align: center; padding: 40px 0; }
+</style>
+</head>
+<body>
+<div x-data="rectApp()" x-init="init()">
+  <header>
+    <h1>📐 Rectangular</h1>
+    <div class="tabs">
+      <button class="tab" :class="{'active': tab === 'active'}" @click="switchTab('active')">
+        Active <span x-text="counts.active"></span>
+      </button>
+      <button class="tab" :class="{'active': tab === 'done'}" @click="switchTab('done')">
+        Done <span x-text="counts.done"></span>
+      </button>
+    </div>
+    <div class="new-ticket">
+      <div class="full-access" @click="toggleFullAccess()" title="Full Access Mode: lets agents delete/edit too">
+        <div class="switch" :class="{ 'on': fullAccess }"><div class="knob"></div></div>
+        Full Access
+      </div>
+      <input x-model="newTitle" @keydown.enter="addTicket()" placeholder="Type a task, press + ... voice dump welcome">
+      <button @click="addTicket()">＋</button>
+    </div>
+  </header>
+
+  <main>
+    <template x-for="day in days" :key="day.day">
+      <div class="day">
+        <h2 x-text="day.label"></h2>
+        <template x-for="t in day.tickets" :key="t.id">
+          <div class="ticket">
+            <div class="ticket-head" @click="open(t)">
+              <span class="id" x-text="t.no"></span>
+              <span class="title" x-text="t.title"></span>
+              <span class="status" :class="{ 'pending': t.pending_approval, 'done': t.approved }" x-text="t.status || '—'"></span>
+            </div>
+            <div class="chat" x-show="openId === t.id">
+              <template x-for="c in t.messages" :key="c.id">
+                <div class="msg">
+                  <div class="meta">
+                    <span class="who" :class="c.role" x-text="c.role"></span>
+                    <span x-show="c.name" x-text="'(' + c.name + ')'"></span>
+                    <span x-text="c.created_at"></span>
+                    <span class="extra" x-show="c.status_after" x-text="'→ status: ' + c.status_after"></span>
+                    <span class="extra" x-show="c.approval_action" x-text="'→ ' + c.approval_action"></span>
+                  </div>
+                  <div class="body" x-text="c.body"></div>
+                </div>
+              </template>
+              <div class="reply">
+                <input x-model="replyText" @keydown.enter="reply(t, false)" placeholder="Write back ... (Enter = comment)">
+                <button @click="reply(t, false)">Comment</button>
+                <button class="approve" @click="reply(t, true)" x-show="!t.approved">✓ Approve</button>
+              </div>
+              <div class="ticket-actions">
+                <input x-model="editTitle" placeholder="Rename title ...">
+                <input x-model="editStatus" placeholder="Set status ... (free string)">
+                <button @click="editTicket(t)">Save</button>
+                <button class="danger" @click="deleteTicket(t)">🗑 Delete</button>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </template>
+    <div class="empty" x-show="days.length === 0" x-text="tab === 'active' ? 'No active tickets. Dump something above. 🎉' : 'Nothing done yet. Go make me proud.'"></div>
+  </main>
+</div>
+
+<script>
+function rectApp() {
+  return {
+    tab: 'active',
+    days: [],
+    counts: { active: 0, done: 0 },
+    openId: null,
+    newTitle: '',
+    replyText: '',
+    editTitle: '',
+    editStatus: '',
+    fullAccess: false,
+
+    async init() {
+      await this.loadSettings();
+      await this.load();
+    },
+
+    async loadSettings() {
+      const s = await (await fetch('/api/settings')).json();
+      this.fullAccess = s.full_access;
+    },
+
+    async toggleFullAccess() {
+      this.fullAccess = !this.fullAccess;
+      await fetch('/api/settings/full_access', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: this.fullAccess })
+      });
+    },
+
+    switchTab(t) { this.tab = t; this.openId = null; this.load(); },
+
+    async load() {
+      const r = await fetch('/api/tickets?done=' + (this.tab === 'done'));
+      this.days = await r.json();
+      const s = await (await fetch('/api/status')).json();
+      this.counts = { active: s.active_count, done: s.done_count };
+    },
+
+    async addTicket() {
+      const title = this.newTitle.trim();
+      if (!title) return;
+      await fetch('/api/tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, created_by: 'user' })
+      });
+      this.newTitle = '';
+      await this.load();
+    },
+
+    async open(t) {
+      if (this.openId === t.id) { this.openId = null; return; }
+      this.openId = t.id;
+      if (!t.messages) {
+        const r = await fetch('/api/tickets/' + t.no);
+        const full = await r.json();
+        t.messages = full.messages;
+      }
+    },
+
+    async reply(t, approve) {
+      const body = this.replyText.trim();
+      if (!body && !approve) return;
+      await fetch('/api/tickets/' + t.no + '/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: body || (approve ? '✅ approved' : ''), role: 'user', approve })
+      });
+      this.replyText = '';
+      await this.load();
+    },
+
+    async editTicket(t) {
+      const payload = {};
+      if (this.editTitle.trim()) payload.title = this.editTitle.trim();
+      if (this.editStatus.trim()) payload.status = this.editStatus.trim();
+      if (!Object.keys(payload).length) return;
+      await fetch('/api/tickets/' + t.no, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, role: 'user' })
+      });
+      this.editTitle = ''; this.editStatus = '';
+      await this.load();
+    },
+
+    async deleteTicket(t) {
+      if (!confirm('Delete ' + t.no + ' "' + t.title + '"?')) return;
+      await fetch('/api/tickets/' + t.no, { method: 'DELETE' });
+      this.openId = null;
+      await this.load();
+    }
+  };
+}
+</script>
+</body>
+</html>

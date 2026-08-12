@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Personal / private — not part of the project
+private/
+
+# NOTE: .rect/ is intentionally committed (the DB travels with the repo).
+# .rect/rect.db-wal and -shm are transient; ui.json is a runtime PID/port file.
+.rect/*.db-wal
+.rect/*.db-shm
+.rect/ui.json

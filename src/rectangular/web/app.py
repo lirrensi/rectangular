@@ -1,0 +1,168 @@
+"""FastAPI backend + single-page Alpine UI for Rectangular.
+
+The UI is the first-class interface. UI messages are always role=user.
+Comments from workers arrive via CLI/orchestrator with role=assistant/system.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+
+from .. import core, db
+
+app = FastAPI(title="Rectangular")
+
+
+class AddTicketBody(BaseModel):
+    title: str
+    created_by: str = "user"
+
+
+class CommentBody(BaseModel):
+    body: str
+    role: str = "user"
+    name: str | None = None
+    status: str | None = None
+    approve: bool | None = None
+    pending: bool = False
+
+
+class UpdateBody(BaseModel):
+    status: str
+
+
+class EditBody(BaseModel):
+    title: str | None = None
+    status: str | None = None
+    role: str = "user"
+
+
+class FullAccessBody(BaseModel):
+    value: bool
+
+
+def _get(ref: str) -> int:
+    try:
+        return core.parse_ticket_no(ref)
+    except ValueError:
+        raise HTTPException(status_code=404, detail=f"Bad ticket ref: {ref!r}")
+
+
+@app.get("/", response_class=HTMLResponse)
+def index() -> str:
+    return (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+
+
+@app.get("/api/status")
+def api_status() -> dict[str, Any]:
+    return core.status_summary()
+
+
+@app.get("/api/tickets")
+def api_list(done: bool = False) -> list[dict[str, Any]]:
+    return core.group_by_day(core.list_tickets(done=done))
+
+
+@app.get("/api/tickets/{ref}")
+def api_get(ref: str) -> dict[str, Any]:
+    return core.get_ticket(_get(ref))
+
+
+@app.post("/api/tickets", status_code=201)
+def api_add(body: AddTicketBody) -> dict[str, Any]:
+    try:
+        return core.add_ticket(body.title, created_by=body.created_by)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/tickets/{ref}/comments", status_code=201)
+def api_comment(ref: str, body: CommentBody) -> dict[str, Any]:
+    tid = _get(ref)
+    try:
+        if body.pending:
+            core.mark_pending(tid, role=core.ROLE_ASSISTANT)
+        return core.message(
+            tid,
+            role=body.role,
+            body=body.body,
+            name=body.name,
+            status=body.status,
+            approve=body.approve,
+        )
+    except (KeyError, ValueError, PermissionError) as e:
+        raise HTTPException(status_code=400 if isinstance(e, (ValueError, PermissionError)) else 404, detail=str(e))
+
+
+@app.put("/api/tickets/{ref}/status")
+def api_status_update(ref: str, body: UpdateBody) -> dict[str, Any]:
+    tid = _get(ref)
+    try:
+        return core.message(tid, role="user", body=f"status → {body.status}", status=body.status)
+    except (KeyError, ValueError, PermissionError) as e:
+        raise HTTPException(status_code=400 if isinstance(e, (ValueError, PermissionError)) else 404, detail=str(e))
+
+
+@app.patch("/api/tickets/{ref}")
+def api_edit(ref: str, body: EditBody) -> dict[str, Any]:
+    tid = _get(ref)
+    try:
+        return core.update_ticket(tid, title=body.title, status=body.status, role=body.role)
+    except (KeyError, ValueError, PermissionError) as e:
+        status_code = 404 if isinstance(e, KeyError) else (403 if isinstance(e, PermissionError) else 400)
+        raise HTTPException(status_code=status_code, detail=str(e))
+
+
+@app.delete("/api/tickets/{ref}", status_code=204)
+def api_delete(ref: str, role: str = "user") -> None:
+    tid = _get(ref)
+    try:
+        core.delete_ticket(tid, role=role)
+    except (KeyError, PermissionError) as e:
+        status_code = 404 if isinstance(e, KeyError) else 403
+        raise HTTPException(status_code=status_code, detail=str(e))
+
+
+@app.delete("/api/tickets/{ref}/messages/{message_id}", status_code=204)
+def api_delete_message(ref: str, message_id: int, role: str = "user") -> None:
+    tid = _get(ref)
+    # verify message belongs to the ticket
+    conn = db.connect()
+    try:
+        row = conn.execute(
+            "SELECT id FROM messages WHERE id = ? AND ticket_id = ?",
+            (message_id, tid),
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Message not found: {message_id}")
+    try:
+        core.delete_message(message_id, role=role)
+    except (KeyError, PermissionError) as e:
+        status_code = 404 if isinstance(e, KeyError) else 403
+        raise HTTPException(status_code=status_code, detail=str(e))
+
+
+@app.get("/api/settings")
+def api_settings() -> dict[str, Any]:
+    conn = db.connect()
+    try:
+        return {"full_access": db.full_access_enabled(conn)}
+    finally:
+        conn.close()
+
+
+@app.put("/api/settings/full_access")
+def api_full_access(body: FullAccessBody) -> dict[str, Any]:
+    conn = db.connect()
+    try:
+        db.set_setting(conn, "full_access", "1" if body.value else "0")
+        return {"full_access": body.value}
+    finally:
+        conn.close()
