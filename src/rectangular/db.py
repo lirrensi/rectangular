@@ -57,6 +57,10 @@ def db_path() -> Path:
     return rect_dir() / DB_FILE_NAME
 
 
+# Current schema version. Bump + add a migration step when the schema changes.
+SCHEMA_VERSION = 3
+
+
 def connect() -> sqlite3.Connection:
     """Open a connection, creating .rect/ and the schema on first use."""
     d = rect_dir()
@@ -70,12 +74,42 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+def schema_version(conn: sqlite3.Connection) -> int:
+    return conn.execute("PRAGMA user_version").fetchone()[0]
+
+
 def _table_cols(conn: sqlite3.Connection, table: str) -> set[str]:
     return {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
+def _set_version(conn: sqlite3.Connection, version: int) -> None:
+    conn.execute(f"PRAGMA user_version = {int(version)}")
+    conn.commit()
+
+
 def _migrate(conn: sqlite3.Connection) -> None:
-    """Migrate legacy schemas to v3 (tickets.state, messages.action)."""
+    """Bring the DB up to SCHEMA_VERSION.
+
+    Version 0 means either a fresh DB or a legacy DB created before
+    versioning existed. The legacy path infers shape (columns/tables);
+    from there on, every future change is an explicit `if version < N` step.
+    """
+    version = schema_version(conn)
+
+    if version == 0:
+        _migrate_legacy(conn)
+        version = SCHEMA_VERSION
+
+    # Future migrations, e.g.:
+    # if version < 4:
+    #     _migrate_3_to_4(conn)
+    #     version = 4
+
+    _set_version(conn, version)
+
+
+def _migrate_legacy(conn: sqlite3.Connection) -> None:
+    """Shape-inferred catch-all: bring any pre-versioning DB to v3."""
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
 
     # ---- v1 → v2: comments(author) → messages(role, name) ----

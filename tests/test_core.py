@@ -338,6 +338,53 @@ def test_migrate_legacy_comments_and_approved_to_state(tmp_path, monkeypatch):
     assert "approved" not in active_t
     assert "pending_approval" not in active_t
 
+
+def test_schema_version_stamped_on_fresh_db(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    core.add_ticket("one")
+    conn = db.connect()
+    try:
+        assert db.schema_version(conn) == db.SCHEMA_VERSION
+        assert db.SCHEMA_VERSION == 3
+    finally:
+        conn.close()
+
+
+def test_legacy_db_stamped_with_current_version(tmp_path, monkeypatch):
+    import sqlite3
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".rect").mkdir()
+    conn = sqlite3.connect(tmp_path / ".rect" / "rect.db")
+    conn.execute(
+        "CREATE TABLE tickets ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT '',"
+        " approved INTEGER NOT NULL DEFAULT 0, pending_approval INTEGER NOT NULL DEFAULT 0,"
+        " created_by TEXT NOT NULL DEFAULT 'user', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"
+    )
+    conn.execute(
+        "CREATE TABLE comments ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL,"
+        " author TEXT NOT NULL, body TEXT NOT NULL, status_after TEXT,"
+        " approval_action TEXT, created_at TEXT NOT NULL)"
+    )
+    conn.execute(
+        "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+    )
+    conn.execute(
+        "INSERT INTO tickets (id, title, status, approved, created_at, updated_at) "
+        "VALUES (1, 'old', '', 0, 'x', 'x')"
+    )
+    conn.commit()
+    conn.close()
+
+    core.add_ticket("new")  # triggers migration
+    conn = db.connect()
+    try:
+        assert db.schema_version(conn) == db.SCHEMA_VERSION == 3
+    finally:
+        conn.close()
+
 # ---------------------------------------------------------------------------
 # RECTANGULAR LAW: no curves. border-radius is forbidden.
 # ---------------------------------------------------------------------------

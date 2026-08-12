@@ -59,6 +59,12 @@ def index() -> str:
     return (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
 
 
+@app.get("/alpine.min.js", response_class=HTMLResponse)
+def alpine() -> str:
+    """Vendored Alpine build — works with no internet/CDN access."""
+    return (Path(__file__).parent / "alpine.min.js").read_text(encoding="utf-8")
+
+
 @app.get("/api/status")
 def api_status() -> dict[str, Any]:
     s = core.status_summary()

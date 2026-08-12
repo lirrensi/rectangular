@@ -6,15 +6,11 @@ build-backend = "hatchling.build"
 name = "rectangular"
 version = "0.1.0"
 description = "Chat-first, UI-first task system. One folder, one SQLite DB, zero ceremony."
-readme = "SPEC.md"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "click>=8.1.0",
     "rich>=13.0.0",
-]
-
-[project.optional-dependencies]
-web = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
 ]
@@ -24,6 +20,10 @@ rect = "rectangular.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rectangular"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/rectangular/web/index.html" = "rectangular/web/index.html"
+"src/rectangular/web/alpine.min.js" = "rectangular/web/alpine.min.js"
 
 [dependency-groups]
 dev = [
