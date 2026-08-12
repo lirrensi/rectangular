@@ -116,6 +116,7 @@ def api_comment(ref: str, body: CommentBody) -> dict[str, Any]:
 
 class CloseBody(BaseModel):
     body: str | None = None
+    name: str | None = None
 
 
 @app.post("/api/tickets/{ref}/close", status_code=200)
@@ -123,8 +124,8 @@ def api_close(ref: str, body: CloseBody | None = None) -> dict[str, Any]:
     tid = _get(ref)
     try:
         if body and body.body and body.body.strip():
-            core.message(tid, role="user", body=body.body.strip())
-        return core.close(tid, role="user")
+            core.message(tid, role="user", body=body.body.strip(), name=body.name)
+        return core.close(tid, role="user", name=body.name if body else None)
     except (KeyError, ValueError, PermissionError) as e:
         raise HTTPException(status_code=400 if isinstance(e, (ValueError, PermissionError)) else 404, detail=str(e))
 

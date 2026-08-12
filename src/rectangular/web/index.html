@@ -11,6 +11,11 @@
     --text: #e6e8ee; --dim: #8b93a3; --accent: #8b5cf6; --green: #34d399; --amber: #fbbf24;
     --user: #8b5cf6; --agent: #22d3ee;
   }
+  [data-theme="light"] {
+    --bg: #f4f5f8; --panel: #ffffff; --panel2: #eceef2; --border: #d8dce4;
+    --text: #1a1d24; --dim: #667085; --accent: #7c3aed; --green: #059669; --amber: #d97706;
+    --user: #7c3aed; --agent: #0891b2;
+  }
   /* RULE: this is RECTANGULAR. No curved corners. Ever. Angles only. */
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; min-height: 100vh; }
@@ -25,9 +30,14 @@
   .search input:focus { border-color: var(--accent); }
   .search .clear { background: transparent; border: none; color: var(--dim); cursor: pointer; font-size: 14px; padding: 4px; }
   .search .clear:hover { color: var(--text); }
-  .new-ticket { margin-left: auto; display: flex; gap: 8px; align-items: center; }
-  .new-ticket input { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; width: 340px; }
-  .new-ticket button { background: var(--accent); border: none; color: white; padding: 8px 16px; cursor: pointer; font-weight: 600; }
+  .new-ticket { display: flex; gap: 8px; align-items: center; margin-bottom: 20px; }
+  .new-ticket input { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 10px 12px; width: 100%; }
+  .new-ticket button { background: var(--accent); border: none; color: white; padding: 10px 16px; cursor: pointer; font-weight: 600; }
+  .settings { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+  .name-input { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; width: 120px; font-size: 12px; }
+  .name-input:focus { border-color: var(--accent); }
+  .theme-toggle { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; cursor: pointer; font-size: 13px; }
+  .theme-toggle:hover { border-color: var(--accent); }
   .full-access { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); cursor: pointer; user-select: none; }
   .full-access .switch { width: 34px; height: 18px; background: var(--panel2); border: 1px solid var(--border); position: relative; transition: background .15s; }
   .full-access .switch.on { background: var(--amber); border-color: var(--amber); }
@@ -90,17 +100,23 @@
       <input x-model="query" @keydown.escape="query = ''" placeholder="Search titles & comments...">
       <button class="clear" x-show="query" @click="query = ''">✕</button>
     </div>
-    <div class="new-ticket">
+    <div class="settings">
+      <input class="name-input" x-model="userName" @change="saveName()" placeholder="Your name"
+             title="Name shown on your replies. Saved in this browser.">
       <div class="full-access" @click="toggleFullAccess()" title="Full Access Mode: lets agents delete/edit too">
         <div class="switch" :class="{ 'on': fullAccess }"><div class="knob"></div></div>
         Full Access
       </div>
-      <input x-model="newTitle" @keydown.enter="addTicket()" placeholder="Type a task, press + ... voice dump welcome">
-      <button @click="addTicket()">＋</button>
+      <button class="theme-toggle" @click="toggleTheme()" x-text="theme === 'dark' ? '☀️' : '🌙'"
+              :title="theme === 'dark' ? 'Light mode' : 'Dark mode'"></button>
     </div>
   </header>
 
   <main>
+    <div class="new-ticket">
+      <input x-model="newTitle" @keydown.enter="addTicket()" placeholder="Type a task, press + ... voice dump welcome">
+      <button @click="addTicket()">＋</button>
+    </div>
     <template x-for="day in filteredDays" :key="day.day">
       <div class="day">
         <h2 x-text="day.label"></h2>
@@ -168,10 +184,27 @@ function rectApp() {
     editTitleVal: '',
     fullAccess: false,
     query: '',
+    userName: localStorage.getItem('rect_name') || '',
+    theme: localStorage.getItem('rect_theme') || 'dark',
 
     async init() {
+      this.applyTheme();
       await this.loadSettings();
       await this.load();
+    },
+
+    applyTheme() {
+      document.documentElement.dataset.theme = this.theme;
+    },
+
+    toggleTheme() {
+      this.theme = this.theme === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('rect_theme', this.theme);
+      this.applyTheme();
+    },
+
+    saveName() {
+      localStorage.setItem('rect_name', this.userName);
     },
 
     get filteredDays() {
@@ -227,7 +260,6 @@ function rectApp() {
       this.newTitle = '';
       await this.load();
     },
-
     async open(t) {
       if (this.openId === t.id) { this.openId = null; return; }
       this.openId = t.id;
@@ -244,7 +276,7 @@ function rectApp() {
       await fetch('/api/tickets/' + t.no + '/comments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body, role: 'user' })
+        body: JSON.stringify({ body, role: 'user', name: this.userName || null })
       });
       this.replyText = '';
       await this.load();
@@ -252,7 +284,7 @@ function rectApp() {
 
     async closeTicket(t) {
       const body = this.replyText.trim();
-      const payload = body ? { body } : {};
+      const payload = body ? { body, name: this.userName || null } : { name: this.userName || null };
       this.replyText = '';
       await fetch('/api/tickets/' + t.no + '/close', {
         method: 'POST',

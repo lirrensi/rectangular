@@ -270,6 +270,7 @@ def _flip_state(
     new_state: str,
     action: str,
     body: str,
+    name: str | None = None,
 ) -> dict[str, Any]:
     _require_state_power(role)
     if new_state not in VALID_STATES:
@@ -279,7 +280,7 @@ def _flip_state(
         row = conn.execute("SELECT * FROM tickets WHERE id = ?", (ticket_id,)).fetchone()
         if row is None:
             raise KeyError(f"Ticket not found: {ticket_no(ticket_id)}")
-        _insert_message(conn, ticket_id, role, body, action=action)
+        _insert_message(conn, ticket_id, role, body, action=action, name=name)
         conn.execute(
             "UPDATE tickets SET state = ?, updated_at = ? WHERE id = ?",
             (new_state, _now(), ticket_id),
@@ -290,14 +291,24 @@ def _flip_state(
         conn.close()
 
 
-def close(ticket_id: int, role: str = ROLE_USER, body: str = "✅ closed") -> dict[str, Any]:
+def close(
+    ticket_id: int,
+    role: str = ROLE_USER,
+    body: str = "✅ closed",
+    name: str | None = None,
+) -> dict[str, Any]:
     """Close → Done. Removes the ticket from your eyes."""
-    return _flip_state(ticket_id, role, STATE_DONE, ACTION_CLOSE, body)
+    return _flip_state(ticket_id, role, STATE_DONE, ACTION_CLOSE, body, name=name)
 
 
-def reopen(ticket_id: int, role: str = ROLE_USER, body: str = "↩ reopened") -> dict[str, Any]:
+def reopen(
+    ticket_id: int,
+    role: str = ROLE_USER,
+    body: str = "↩ reopened",
+    name: str | None = None,
+) -> dict[str, Any]:
     """Reopen a done ticket → Active."""
-    return _flip_state(ticket_id, role, STATE_ACTIVE, ACTION_REOPEN, body)
+    return _flip_state(ticket_id, role, STATE_ACTIVE, ACTION_REOPEN, body, name=name)
 
 
 # ---------------------------------------------------------------------------
