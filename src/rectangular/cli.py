@@ -238,26 +238,17 @@ def add(title: str, role: str, name: str | None) -> None:
 @click.argument("ref")
 @click.argument("body")
 @click.option("--status", help="Set status atomically with this message")
-@click.option("--approve", is_flag=True, help="Approve atomically (user only)")
-@click.option("--no-approve", is_flag=True, help="Un-approve atomically (user only)")
 @_role_option
 @_name_option
-def comment(ref: str, body: str, status: str | None, approve: bool,
-            no_approve: bool, role: str, name: str | None) -> None:
-    """Append a chat message. May carry status + approval atomically.
+def comment(ref: str, body: str, status: str | None, role: str, name: str | None) -> None:
+    """Append a chat message (pure primitive — always allowed).
 
     Role defaults to system (the machine talking). --as user to speak as you.
+    Approval is a separate flag; use `rect approve` / `rect close` / `rect pending`.
     """
     try:
         tid = core.parse_ticket_no(ref)
-        if approve and no_approve:
-            raise ValueError("--approve and --no-approve are mutually exclusive")
-        ap: bool | None = None
-        if approve:
-            ap = True
-        elif no_approve:
-            ap = False
-        t = core.message(tid, role=role, body=body, name=name, status=status, approve=ap)
+        t = core.message(tid, role=role, body=body, name=name, status=status)
     except (KeyError, ValueError, PermissionError) as e:
         console.print(str(e), style="red")
         sys.exit(1)
@@ -282,12 +273,12 @@ def update(ref: str, new_status: str, role: str) -> None:
 
 @main.command()
 @click.argument("ref")
-def approve(ref: str) -> None:
-    """Approve a ticket (speaks as the user). Moves to Done."""
+@_role_option
+def approve(ref: str, role: str) -> None:
+    """Approve a ticket → Done. User only; workers need Full Access Mode."""
     try:
         tid = core.parse_ticket_no(ref)
-        t = core.message(tid, role=core.ROLE_USER, body="✅ approved",
-                         approve=True)
+        t = core.message(tid, role=role, body="✅ approved", approve=True)
     except (KeyError, ValueError, PermissionError) as e:
         console.print(str(e), style="red")
         sys.exit(1)
@@ -296,12 +287,30 @@ def approve(ref: str) -> None:
 
 @main.command()
 @click.argument("ref")
-def reopen(ref: str) -> None:
-    """Reopen a done ticket (speaks as the user). Back to Active."""
+@_role_option
+def close(ref: str, role: str) -> None:
+    """Manually close a ticket → Done (no approval ceremony).
+
+    For tickets with no pending approval. User only; workers need Full Access Mode.
+    """
     try:
         tid = core.parse_ticket_no(ref)
-        t = core.message(tid, role=core.ROLE_USER, body="↩ reopened",
-                         approve=False)
+        t = core.message(tid, role=role, body="✅ closed", approve=True,
+                         action="close")
+    except (KeyError, ValueError, PermissionError) as e:
+        console.print(str(e), style="red")
+        sys.exit(1)
+    console.print(f"{t['no']} closed → Done")
+
+
+@main.command()
+@click.argument("ref")
+@_role_option
+def reopen(ref: str, role: str) -> None:
+    """Reopen a done ticket → Active. User only; workers need Full Access Mode."""
+    try:
+        tid = core.parse_ticket_no(ref)
+        t = core.message(tid, role=role, body="↩ reopened", approve=False)
     except (KeyError, ValueError, PermissionError) as e:
         console.print(str(e), style="red")
         sys.exit(1)
@@ -313,11 +322,10 @@ def reopen(ref: str) -> None:
 @click.argument("body", default="pending approval — please check")
 @_name_option
 def pending(ref: str, body: str, name: str | None) -> None:
-    """Worker marks a ticket as pending approval (role: assistant by default)."""
+    """Worker requests approval (role: assistant by default)."""
     try:
         tid = core.parse_ticket_no(ref)
-        t = core.mark_pending(tid, role=core.ROLE_ASSISTANT)
-        core.message(tid, role=core.ROLE_ASSISTANT, body=body, name=name)
+        t = core.request_approval(tid, role=core.ROLE_ASSISTANT, body=body, name=name)
     except (KeyError, ValueError, PermissionError) as e:
         console.print(str(e), style="red")
         sys.exit(1)

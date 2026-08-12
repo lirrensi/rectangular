@@ -172,6 +172,21 @@ def _insert_message(
     )
 
 
+def _require_approval_power(role: str) -> None:
+    """Approval flag flips are the user's call. Workers need Full Access Mode."""
+    if role == ROLE_USER:
+        return
+    conn = db.connect()
+    try:
+        if not db.full_access_enabled(conn):
+            raise PermissionError(
+                "Approval changes are user-only. Workers may request approval, "
+                "but flipping it requires `rect full-access on`."
+            )
+    finally:
+        conn.close()
+
+
 def message(
     ticket_id: int,
     role: str,
@@ -179,14 +194,16 @@ def message(
     name: str | None = None,
     status: str | None = None,
     approve: bool | None = None,
+    action: str | None = None,
 ) -> dict[str, Any]:
-    """Append a chat message. Optionally set status and/or approval atomically."""
+    """Append a chat message. Status is free (anyone). Approval is a flag —
+    only touched when explicitly requested via approve/action."""
     if role not in VALID_ROLES:
         raise ValueError(f"role must be one of {sorted(VALID_ROLES)}, got {role!r}")
     if body is None or not body.strip():
         raise ValueError("Message body cannot be empty.")
-    if approve is True and role != ROLE_USER:
-        raise PermissionError("Only the user can approve.")
+    if approve is not None or action is not None:
+        _require_approval_power(role)
 
     conn = db.connect()
     try:
@@ -194,10 +211,10 @@ def message(
         if row is None:
             raise KeyError(f"Ticket not found: {ticket_no(ticket_id)}")
 
-        approval_action = None
-        if approve is True:
+        approval_action = action
+        if approve is True and action is None:
             approval_action = APPROVE
-        elif approve is False:
+        elif approve is False and action is None:
             approval_action = UNAPPROVE
 
         _insert_message(
@@ -212,8 +229,7 @@ def message(
 
         new_status = status if status is not None else row["status"]
         new_approved = 1 if approve is True else (0 if approve is False else row["approved"])
-        # approving clears pending; any user comment also clears pending,
-        # because the ball is back in the user's court.
+        # user replying (any message) clears pending — the ball is in their court
         new_pending = 0 if approve is not None or role == ROLE_USER else row["pending_approval"]
 
         conn.execute(
@@ -227,20 +243,27 @@ def message(
         conn.close()
 
 
-def mark_pending(ticket_id: int, role: str) -> dict[str, Any]:
+def request_approval(ticket_id: int, role: str, body: str = "pending approval — please check",
+                     name: str | None = None) -> dict[str, Any]:
     """A worker (assistant/system) marks the ticket for user confirmation."""
     if role == ROLE_USER:
-        raise PermissionError("Only workers mark tickets as pending approval.")
+        raise PermissionError("Only workers request approval.")
     conn = db.connect()
     try:
         conn.execute(
             "UPDATE tickets SET pending_approval = 1, updated_at = ? WHERE id = ?",
             (_now(), ticket_id),
         )
+        _insert_message(conn, ticket_id, role, body, name=name)
         conn.commit()
         return get_ticket(ticket_id, conn=conn)
     finally:
         conn.close()
+
+
+def mark_pending(ticket_id: int, role: str) -> dict[str, Any]:
+    """Backward-compat alias for request_approval."""
+    return request_approval(ticket_id, role)
 
 
 # ---------------------------------------------------------------------------

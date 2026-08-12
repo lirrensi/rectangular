@@ -48,11 +48,16 @@
   .reply input { flex: 1; background: var(--panel2); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 8px 12px; }
   .reply button { background: var(--panel2); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 8px 12px; cursor: pointer; font-weight: 600; }
   .reply .approve { background: var(--green); border-color: var(--green); color: #04231a; }
+  .reply .close { background: var(--amber); border-color: var(--amber); color: #3a2a00; }
   .ticket-actions { display: flex; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); align-items: center; }
   .ticket-actions button { background: transparent; border: 1px solid var(--border); color: var(--dim); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
   .ticket-actions button:hover { border-color: var(--accent); color: var(--text); }
   .ticket-actions .danger:hover { border-color: #ef4444; color: #ef4444; }
   .ticket-actions input { flex: 1; background: var(--panel2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 10px; font-size: 12px; }
+  .title-input, .status-input { background: var(--panel2); border: 1px solid var(--accent); color: var(--text); border-radius: 6px; padding: 2px 8px; font-size: inherit; }
+  .edit-confirm, .edit-cancel { background: transparent; border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 2px 8px; cursor: pointer; font-size: 12px; }
+  .edit-confirm:hover { border-color: var(--green); color: var(--green); }
+  .edit-cancel:hover { border-color: #ef4444; color: #ef4444; }
   .empty { color: var(--dim); text-align: center; padding: 40px 0; }
 </style>
 </head>
@@ -86,8 +91,22 @@
           <div class="ticket">
             <div class="ticket-head" @click="open(t)">
               <span class="id" x-text="t.no"></span>
-              <span class="title" x-text="t.title"></span>
-              <span class="status" :class="{ 'pending': t.pending_approval, 'done': t.approved }" x-text="t.status || '—'"></span>
+              <span class="title" @dblclick.stop="startEditTitle(t)" x-show="editTicketId !== t.id" x-text="t.title"></span>
+              <template x-if="editTicketId === t.id">
+                <span class="title">
+                  <input class="title-input" x-model="editTitleVal" @keydown.enter="saveEdit(t)" @keydown.escape="cancelEdit()" @click.stop>
+                  <button class="edit-confirm" @click.stop="saveEdit(t)">✓</button>
+                  <button class="edit-cancel" @click.stop="cancelEdit()">✕</button>
+                </span>
+              </template>
+              <span class="status" :class="{ 'pending': t.pending_approval, 'done': t.approved }" @dblclick.stop="startEditStatus(t)" x-show="editStatusId !== t.id" x-text="t.status || '—'"></span>
+              <template x-if="editStatusId === t.id">
+                <span class="status" style="background:var(--panel2);border-color:var(--accent);">
+                  <input class="status-input" style="width:120px" x-model="editStatusVal" @keydown.enter="saveEdit(t)" @keydown.escape="cancelEdit()" @click.stop>
+                  <button class="edit-confirm" @click.stop="saveEdit(t)">✓</button>
+                  <button class="edit-cancel" @click.stop="cancelEdit()">✕</button>
+                </span>
+              </template>
             </div>
             <div class="chat" x-show="openId === t.id">
               <template x-for="c in t.messages" :key="c.id">
@@ -105,12 +124,12 @@
               <div class="reply">
                 <input x-model="replyText" @keydown.enter="reply(t, false)" placeholder="Write back ... (Enter = comment)">
                 <button @click="reply(t, false)">Comment</button>
-                <button class="approve" @click="reply(t, true)" x-show="!t.approved">✓ Approve</button>
+                <template x-if="!t.approved">
+                  <button class="approve" x-show="t.pending_approval" @click="reply(t, true, 'approve')">✓ Approve</button>
+                  <button class="close" x-show="!t.pending_approval" @click="reply(t, true, 'close')">Close</button>
+                </template>
               </div>
               <div class="ticket-actions">
-                <input x-model="editTitle" placeholder="Rename title ...">
-                <input x-model="editStatus" placeholder="Set status ... (free string)">
-                <button @click="editTicket(t)">Save</button>
                 <button class="danger" @click="deleteTicket(t)">🗑 Delete</button>
               </div>
             </div>
@@ -131,8 +150,10 @@ function rectApp() {
     openId: null,
     newTitle: '',
     replyText: '',
-    editTitle: '',
-    editStatus: '',
+    editTicketId: null,
+    editStatusId: null,
+    editTitleVal: '',
+    editStatusVal: '',
     fullAccess: false,
 
     async init() {
@@ -185,29 +206,48 @@ function rectApp() {
       }
     },
 
-    async reply(t, approve) {
+    async reply(t, approve, action) {
       const body = this.replyText.trim();
       if (!body && !approve) return;
       await fetch('/api/tickets/' + t.no + '/comments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: body || (approve ? '✅ approved' : ''), role: 'user', approve })
+        body: JSON.stringify({
+          body: body || (approve ? (action === 'close' ? '✅ closed' : '✅ approved') : ''),
+          role: 'user', approve: approve || null, action: action || null
+        })
       });
       this.replyText = '';
       await this.load();
     },
 
-    async editTicket(t) {
+    startEditTitle(t) {
+      this.editTicketId = t.id; this.editTitleVal = t.title;
+    },
+    startEditStatus(t) {
+      this.editStatusId = t.id; this.editStatusVal = t.status || '';
+    },
+    cancelEdit() {
+      this.editTicketId = null; this.editStatusId = null;
+    },
+
+    async saveEdit(t) {
       const payload = {};
-      if (this.editTitle.trim()) payload.title = this.editTitle.trim();
-      if (this.editStatus.trim()) payload.status = this.editStatus.trim();
-      if (!Object.keys(payload).length) return;
+      if (this.editTicketId === t.id) {
+        const v = this.editTitleVal.trim();
+        if (v && v !== t.title) payload.title = v;
+      }
+      if (this.editStatusId === t.id) {
+        const v = this.editStatusVal.trim();
+        if (v !== t.status) payload.status = v;
+      }
+      if (!Object.keys(payload).length) { this.cancelEdit(); return; }
       await fetch('/api/tickets/' + t.no, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...payload, role: 'user' })
       });
-      this.editTitle = ''; this.editStatus = '';
+      this.cancelEdit();
       await this.load();
     },
 

@@ -29,6 +29,7 @@ class CommentBody(BaseModel):
     name: str | None = None
     status: str | None = None
     approve: bool | None = None
+    action: str | None = None
     pending: bool = False
 
 
@@ -86,7 +87,7 @@ def api_comment(ref: str, body: CommentBody) -> dict[str, Any]:
     tid = _get(ref)
     try:
         if body.pending:
-            core.mark_pending(tid, role=core.ROLE_ASSISTANT)
+            core.request_approval(tid, role=core.ROLE_ASSISTANT, body="⏳ pending approval")
         return core.message(
             tid,
             role=body.role,
@@ -94,6 +95,7 @@ def api_comment(ref: str, body: CommentBody) -> dict[str, Any]:
             name=body.name,
             status=body.status,
             approve=body.approve,
+            action=body.action,
         )
     except (KeyError, ValueError, PermissionError) as e:
         raise HTTPException(status_code=400 if isinstance(e, (ValueError, PermissionError)) else 404, detail=str(e))

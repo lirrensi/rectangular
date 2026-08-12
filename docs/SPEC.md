@@ -51,13 +51,17 @@ So every message has at minimum: **time, text, role.**
 
 Status changes and approval are *events that live in the chat*. The message log is the audit trail.
 
-## 3. Approval
+## 3. Approval — a flag, decoupled from the message
 
-- Agent can mark a ticket `pending approval`.
-- **Only I clear it.** Click Approve = yes → ticket becomes `approved=1` → moves to Done tab.
-- Type back / comment = no → ticket stays in Active.
-- **Atomic in the UI:** one action is *write a comment + approve*, or *write a comment and don't approve*. Or just comment and communicate what's wrong.
+**The message is a primitive. Approval is a flag. They never mix.**
+
+- I can **always** leave a comment/message — any time, any ticket, no ceremony.
+- **If approval is pending** → UI shows **Approve** → sends ticket straight to Done.
+- **If NOT pending** → UI shows **Close** → manual close, no ceremony, also goes to Done.
+- The **command line cannot flip the flag** (approve/close) by default — it can only *request* approval. Only in **Full Access Mode** can the CLI flip it.
 - Done ticket commented on again → returns to Active.
+
+Atomic in the UI: *write a message + click Approve/Close* in one action. Or just write a message and don't flip anything.
 
 ## 4. Access model — 2 levels
 
@@ -99,15 +103,16 @@ rect comment T-0001 "body" --status "in review"   # message + status change, ato
 rect comment T-0001 "body" --as user              # speak as the user
 rect comment T-0001 "body" --name worker-42       # optional sender name (multi-collab)
 rect update T-0001 --status X    # shorthand status change
-rect approve T-0001              # user only (speaks as user)
+rect approve T-0001              # flip approval flag → Done (user only; workers need full-access)
+rect close T-0001                # manual close → Done, no ceremony (user only; workers need full-access)
 rect reopen T-0001               # unapprove (back to Active)
 rect delete T-0001 [--as assistant]  # destructive — workers need `rect full-access on`
 rect edit T-0001 --title Y --status Z [--as assistant]  # title is destructive; status is free for anyone
-rect pending T-0001 "msg"        # worker marks pending approval (role: assistant)
+rect pending T-0001 "msg"        # worker requests approval (role: assistant)
 rect full-access on|off          # toggle Level 2
 ```
 
-Roles: **UI → `user` always. CLI → `system` by default**, `--as user` to act as the user, `--as assistant` for workers. `--name` is optional for multi-collab.
+Roles: **UI → `user` always. CLI → `system` by default**, `--as user` to act as the user, `--as assistant` for workers. `--name` is optional for multi-collab. **The CLI can always comment; it can only flip the approval flag in Full Access Mode.**
 
 ## 7. Explicitly NOT doing (from the abandoned agent-sommelier task system)
 

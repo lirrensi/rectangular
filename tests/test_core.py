@@ -106,20 +106,35 @@ def test_status_is_free_string():
 
 
 # ---------------------------------------------------------------------------
-# Approval
+# Approval (a flag, decoupled from the comment primitive)
 # ---------------------------------------------------------------------------
 
 
-def test_assistant_cannot_approve():
+def test_worker_comment_always_allowed():
+    core.add_ticket("one")
+    t = core.message(1, core.ROLE_SYSTEM, "hello there")
+    assert t["messages"][-1]["role"] == "system"
+
+
+def test_assistant_cannot_approve_without_full_access():
     core.add_ticket("one")
     with pytest.raises(PermissionError):
         core.message(1, core.ROLE_ASSISTANT, "done", approve=True)
 
 
-def test_system_cannot_approve():
+def test_system_cannot_approve_without_full_access():
     core.add_ticket("one")
     with pytest.raises(PermissionError):
         core.message(1, core.ROLE_SYSTEM, "done", approve=True)
+
+
+def test_assistant_can_approve_with_full_access():
+    core.add_ticket("one")
+    conn = db.connect()
+    db.set_setting(conn, "full_access", "1")
+    conn.close()
+    t = core.message(1, core.ROLE_ASSISTANT, "done", approve=True)
+    assert t["approved"] == 1
 
 
 def test_user_approve_moves_to_done():
@@ -128,6 +143,19 @@ def test_user_approve_moves_to_done():
     assert t["approved"] == 1
     assert [x["id"] for x in core.list_tickets(done=False)] == []
     assert [x["id"] for x in core.list_tickets(done=True)] == [1]
+
+
+def test_close_moves_to_done():
+    core.add_ticket("one")
+    t = core.message(1, core.ROLE_USER, "closing manually", approve=True, action="close")
+    assert t["approved"] == 1
+    assert [x["id"] for x in core.list_tickets(done=True)] == [1]
+
+
+def test_worker_cannot_close_without_full_access():
+    core.add_ticket("one")
+    with pytest.raises(PermissionError):
+        core.message(1, core.ROLE_ASSISTANT, "closing", approve=True, action="close")
 
 
 def test_reopen_moves_back_to_active():
@@ -145,20 +173,27 @@ def test_approval_leaves_trace():
     assert t["messages"][-1]["approval_action"] == "approve"
 
 
+def test_close_leaves_trace():
+    core.add_ticket("one")
+    core.message(1, core.ROLE_USER, "closing", approve=True, action="close")
+    t = core.get_ticket(1)
+    assert t["messages"][-1]["approval_action"] == "close"
+
+
 def test_pending_approval_flow():
     core.add_ticket("one")
-    t = core.mark_pending(1, role=core.ROLE_ASSISTANT)
+    t = core.request_approval(1, role=core.ROLE_ASSISTANT, body="check this")
     assert t["pending_approval"] == 1
-    # user commenting clears the pending flag
-    t = core.message(1, core.ROLE_USER, "looks bad", approve=False)
+    # user replying (no approve) clears the pending flag
+    t = core.message(1, core.ROLE_USER, "looks bad")
     assert t["pending_approval"] == 0
     assert t["approved"] == 0
 
 
-def test_only_workers_mark_pending():
+def test_only_workers_request_approval():
     core.add_ticket("one")
     with pytest.raises(PermissionError):
-        core.mark_pending(1, role=core.ROLE_USER)
+        core.request_approval(1, role=core.ROLE_USER)
 
 
 # ---------------------------------------------------------------------------
