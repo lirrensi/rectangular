@@ -4,6 +4,10 @@
 
 A ticket is a chat between you and your workers (agents). You read, you reply, you close. That's it.
 
+- Mom I want Linear
+- We have Linear at home
+- [basically this]
+
 ---
 
 ## Install
@@ -28,6 +32,8 @@ rect comment T-0001 "root cause found, working on it"
 rect close T-0001
 ```
 
+But generally, you don't touch the command line at all. You're expected to operate in the UI, first and foremost.
+
 Everything lives in `.rect/` in the current folder — including the SQLite database. **Commit `.rect/` to git** and the whole task state travels with the repo. Throw the folder into a VM and keep working.
 
 ---
@@ -41,6 +47,17 @@ Everything lives in `.rect/` in the current folder — including the SQLite data
 5. **You are the gate.** The CLI can always comment, but only *you* close/reopen. Agents get destructive powers only in Full Access Mode (UI toggle).
 6. **No ceremony.** No `init`, no hand-written files, no YAML wrangling. `rect ui` and go.
 7. **No curved corners.** The app is called Rectangular. The UI is all angles, forever.
+
+## How it's supposed to work
+
+Inspired by [openai/symphony](https://github.com/openai/symphony)
+
+1. You open the UI, add tickets, and read, modify, or leave comments.
+2. You tell your orchestrator to look at the tickets, understand them, then dispatch workers (or the same process) via your scripts, however you like.
+3. They finish and post their results. Then you read what they say, manually check whether the job was really done, add a comment if it's wrong so they can continue — or close it entirely.
+4. Then you either tell your orchestrator to look again, let your script pick it up, or set it on cron — whatever fits. It's up to you how you orchestrate your agent flow.
+
+The intention is that you're never fully decoupled from the work. Forget charts and harnesses: you operate on the board itself, and nothing else.
 
 ---
 
