@@ -1,8 +1,11 @@
 """Tests for Rectangular core.
 
 Each test runs in its own tmp dir so .rect/rect.db is isolated.
-The chat model: each message has role (user/assistant/system), optional name,
-body (text), and created_at (time).
+
+Model: a ticket IS a chat. Messages have role (user/assistant/system),
+optional name, body (text), created_at (time). The only real state is
+tickets.state = 'active' | 'done'. 'needs_review' is derived from the last
+message being from a worker.
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ def test_add_and_get_ticket():
     assert t["no"] == "T-0001"
     assert t["title"] == "Fix login bug"
     assert t["status"] == ""
-    assert t["approved"] == 0
+    assert t["state"] == "active"
     assert t["messages"] == []
 
 
@@ -105,95 +108,130 @@ def test_status_is_free_string():
     assert t["status"] == "🦄 wtf"
 
 
+def test_message_never_touches_state():
+    core.add_ticket("one")
+    t = core.message(1, core.ROLE_ASSISTANT, "just chatting")
+    assert t["state"] == "active"
+
+
 # ---------------------------------------------------------------------------
-# Approval (a flag, decoupled from the comment primitive)
+# State: active | done (user-only flips by default)
 # ---------------------------------------------------------------------------
 
 
-def test_worker_comment_always_allowed():
+def test_user_close_moves_to_done():
     core.add_ticket("one")
-    t = core.message(1, core.ROLE_SYSTEM, "hello there")
-    assert t["messages"][-1]["role"] == "system"
-
-
-def test_assistant_cannot_approve_without_full_access():
-    core.add_ticket("one")
-    with pytest.raises(PermissionError):
-        core.message(1, core.ROLE_ASSISTANT, "done", approve=True)
-
-
-def test_system_cannot_approve_without_full_access():
-    core.add_ticket("one")
-    with pytest.raises(PermissionError):
-        core.message(1, core.ROLE_SYSTEM, "done", approve=True)
-
-
-def test_assistant_can_approve_with_full_access():
-    core.add_ticket("one")
-    conn = db.connect()
-    db.set_setting(conn, "full_access", "1")
-    conn.close()
-    t = core.message(1, core.ROLE_ASSISTANT, "done", approve=True)
-    assert t["approved"] == 1
-
-
-def test_user_approve_moves_to_done():
-    core.add_ticket("one")
-    t = core.message(1, core.ROLE_USER, "approved", approve=True)
-    assert t["approved"] == 1
+    t = core.close(1, role="user")
+    assert t["state"] == "done"
     assert [x["id"] for x in core.list_tickets(done=False)] == []
     assert [x["id"] for x in core.list_tickets(done=True)] == [1]
 
 
-def test_close_moves_to_done():
+def test_reopen_moves_back_to_active():
     core.add_ticket("one")
-    t = core.message(1, core.ROLE_USER, "closing manually", approve=True, action="close")
-    assert t["approved"] == 1
-    assert [x["id"] for x in core.list_tickets(done=True)] == [1]
+    core.close(1, role="user")
+    t = core.reopen(1, role="user")
+    assert t["state"] == "active"
+    assert [x["id"] for x in core.list_tickets(done=False)] == [1]
 
 
 def test_worker_cannot_close_without_full_access():
     core.add_ticket("one")
     with pytest.raises(PermissionError):
-        core.message(1, core.ROLE_ASSISTANT, "closing", approve=True, action="close")
+        core.close(1, role="assistant")
 
 
-def test_reopen_moves_back_to_active():
+def test_worker_cannot_reopen_without_full_access():
     core.add_ticket("one")
-    core.message(1, core.ROLE_USER, "approved", approve=True)
-    t = core.message(1, core.ROLE_USER, "oops", approve=False)
-    assert t["approved"] == 0
-    assert [x["id"] for x in core.list_tickets(done=False)] == [1]
+    core.close(1, role="user")
+    with pytest.raises(PermissionError):
+        core.reopen(1, role="assistant")
 
 
-def test_approval_leaves_trace():
+def test_worker_can_close_with_full_access():
     core.add_ticket("one")
-    core.message(1, core.ROLE_USER, "approved", approve=True)
-    t = core.get_ticket(1)
-    assert t["messages"][-1]["approval_action"] == "approve"
+    conn = db.connect()
+    db.set_setting(conn, "full_access", "1")
+    conn.close()
+    t = core.close(1, role="assistant")
+    assert t["state"] == "done"
+
+
+def test_full_access_off_again():
+    core.add_ticket("one")
+    conn = db.connect()
+    db.set_setting(conn, "full_access", "1")
+    db.set_setting(conn, "full_access", "0")
+    conn.close()
+    with pytest.raises(PermissionError):
+        core.close(1, role="assistant")
 
 
 def test_close_leaves_trace():
     core.add_ticket("one")
-    core.message(1, core.ROLE_USER, "closing", approve=True, action="close")
+    core.close(1, role="user")
     t = core.get_ticket(1)
-    assert t["messages"][-1]["approval_action"] == "close"
+    assert t["messages"][-1]["action"] == "close"
 
 
-def test_pending_approval_flow():
+def test_reopen_leaves_trace():
     core.add_ticket("one")
-    t = core.request_approval(1, role=core.ROLE_ASSISTANT, body="check this")
-    assert t["pending_approval"] == 1
-    # user replying (no approve) clears the pending flag
-    t = core.message(1, core.ROLE_USER, "looks bad")
-    assert t["pending_approval"] == 0
-    assert t["approved"] == 0
+    core.close(1, role="user")
+    core.reopen(1, role="user")
+    t = core.get_ticket(1)
+    assert t["messages"][-1]["action"] == "reopen"
 
 
-def test_only_workers_request_approval():
+# ---------------------------------------------------------------------------
+# Derived needs_review: last message from a worker
+# ---------------------------------------------------------------------------
+
+
+def test_needs_review_when_worker_last():
     core.add_ticket("one")
-    with pytest.raises(PermissionError):
-        core.request_approval(1, role=core.ROLE_USER)
+    core.message(1, core.ROLE_ASSISTANT, "please check")
+    t = core.get_ticket(1)
+    assert t["needs_review"] is True
+
+
+def test_not_needs_review_when_user_last():
+    core.add_ticket("one")
+    core.message(1, core.ROLE_ASSISTANT, "please check")
+    core.message(1, core.ROLE_USER, "looks wrong, fix it")
+    t = core.get_ticket(1)
+    assert t["needs_review"] is False
+
+
+def test_empty_ticket_not_needs_review():
+    core.add_ticket("one")
+    t = core.get_ticket(1)
+    assert t["needs_review"] is False
+
+
+def test_status_summary_counts_needs_review():
+    core.add_ticket("one")
+    core.message(1, core.ROLE_ASSISTANT, "check me")
+    core.add_ticket("two")
+    s = core.status_summary()
+    assert s["active_count"] == 2
+    assert len(s["needs_review"]) == 1
+
+
+def test_group_by_day_puts_needs_review_first():
+    core.add_ticket("a")
+    core.add_ticket("b")
+    core.message(2, core.ROLE_ASSISTANT, "check me")  # T-0002 needs review
+    groups = core.group_by_day(core.list_tickets())
+    day = groups[0]["tickets"]
+    assert day[0]["id"] == 2
+    assert day[0]["needs_review"] is True
+
+
+def test_status_summary_peek_capped_at_ten():
+    for i in range(15):
+        core.add_ticket(f"task {i}")
+    s = core.status_summary()
+    assert len(s["peek"]) == 10
 
 
 # ---------------------------------------------------------------------------
@@ -225,16 +263,6 @@ def test_assistant_can_delete_with_full_access():
         core.get_ticket(1)
 
 
-def test_full_access_off_again():
-    core.add_ticket("one")
-    conn = db.connect()
-    db.set_setting(conn, "full_access", "1")
-    db.set_setting(conn, "full_access", "0")
-    conn.close()
-    with pytest.raises(PermissionError):
-        core.delete_ticket(1, role="assistant")
-
-
 def test_assistant_cannot_edit_title_without_full_access():
     core.add_ticket("one")
     with pytest.raises(PermissionError):
@@ -263,51 +291,15 @@ def test_delete_message_permissions():
 
 
 # ---------------------------------------------------------------------------
-# Views
+# Migration: legacy v1 (comments+author) and v2 (approved flag) → v3
 # ---------------------------------------------------------------------------
 
 
-def test_list_orders_newest_first():
-    core.add_ticket("first")
-    core.add_ticket("second")
-    tickets = core.list_tickets()
-    assert tickets[0]["id"] == 2
-    assert tickets[1]["id"] == 1
-
-
-def test_group_by_day_labels_today():
-    core.add_ticket("one")
-    groups = core.group_by_day(core.list_tickets())
-    assert groups[0]["label"] == "Today"
-    assert [t["title"] for t in groups[0]["tickets"]] == ["one"]
-
-
-def test_status_summary():
-    core.add_ticket("one")
-    core.add_ticket("two")
-    s = core.status_summary()
-    assert s["active_count"] == 2
-    assert s["done_count"] == 0
-    assert len(s["peek"]) == 2
-
-
-def test_status_summary_peek_capped_at_ten():
-    for i in range(15):
-        core.add_ticket(f"task {i}")
-    s = core.status_summary()
-    assert len(s["peek"]) == 10
-
-
-# ---------------------------------------------------------------------------
-# Migration: legacy comments (author) → messages (role)
-# ---------------------------------------------------------------------------
-
-
-def test_migrate_legacy_comments_to_messages(tmp_path, monkeypatch):
+def test_migrate_legacy_comments_and_approved_to_state(tmp_path, monkeypatch):
     import sqlite3
 
     monkeypatch.chdir(tmp_path)
-    # Build a legacy v1 DB by hand (comments table with author)
+    # Build a legacy v2 DB by hand: comments table with author, tickets with approved
     (tmp_path / ".rect").mkdir()
     conn = sqlite3.connect(tmp_path / ".rect" / "rect.db")
     conn.execute(
@@ -326,17 +318,22 @@ def test_migrate_legacy_comments_to_messages(tmp_path, monkeypatch):
         "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
     )
     conn.execute(
-        "INSERT INTO tickets (id, title, status, created_at, updated_at) VALUES (1, 'old', '', 'x', 'x')"
+        "INSERT INTO tickets (id, title, status, approved, pending_approval, created_at, updated_at) "
+        "VALUES (1, 'done one', '', 1, 0, 'x', 'x'), (2, 'active one', '', 0, 1, 'x', 'x')"
     )
     conn.execute(
-        "INSERT INTO comments (ticket_id, author, body, created_at) VALUES (1, 'agent', 'legacy msg', 'x')"
+        "INSERT INTO comments (ticket_id, author, body, approval_action, created_at) "
+        "VALUES (1, 'agent', 'legacy msg', 'approve', 'x')"
     )
     conn.commit()
     conn.close()
 
-    t = core.get_ticket(1)
-    assert len(t["messages"]) == 1
-    m = t["messages"][0]
-    assert m["role"] == "system"  # old 'agent' → system
-    assert m["body"] == "legacy msg"
-    assert m["name"] is None
+    done_t = core.get_ticket(1)
+    assert done_t["state"] == "done"
+    assert done_t["messages"][0]["role"] == "system"
+    assert done_t["messages"][0]["action"] == "close"  # 'approve' → 'close'
+
+    active_t = core.get_ticket(2)
+    assert active_t["state"] == "active"  # pending_approval no longer exists
+    assert "approved" not in active_t
+    assert "pending_approval" not in active_t

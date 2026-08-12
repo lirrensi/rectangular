@@ -1,7 +1,10 @@
 """FastAPI backend + single-page Alpine UI for Rectangular.
 
 The UI is the first-class interface. UI messages are always role=user.
-Comments from workers arrive via CLI/orchestrator with role=assistant/system.
+Messages from workers arrive via CLI/orchestrator with role=assistant/system.
+
+State model: active | done. 'needs_review' is derived (last message from worker).
+Close/reopen are user-only state flips.
 """
 
 from __future__ import annotations
@@ -28,9 +31,6 @@ class CommentBody(BaseModel):
     role: str = "user"
     name: str | None = None
     status: str | None = None
-    approve: bool | None = None
-    action: str | None = None
-    pending: bool = False
 
 
 class UpdateBody(BaseModel):
@@ -86,17 +86,37 @@ def api_add(body: AddTicketBody) -> dict[str, Any]:
 def api_comment(ref: str, body: CommentBody) -> dict[str, Any]:
     tid = _get(ref)
     try:
-        if body.pending:
-            core.request_approval(tid, role=core.ROLE_ASSISTANT, body="⏳ pending approval")
         return core.message(
             tid,
             role=body.role,
             body=body.body,
             name=body.name,
             status=body.status,
-            approve=body.approve,
-            action=body.action,
         )
+    except (KeyError, ValueError, PermissionError) as e:
+        raise HTTPException(status_code=400 if isinstance(e, (ValueError, PermissionError)) else 404, detail=str(e))
+
+
+class CloseBody(BaseModel):
+    body: str | None = None
+
+
+@app.post("/api/tickets/{ref}/close", status_code=200)
+def api_close(ref: str, body: CloseBody | None = None) -> dict[str, Any]:
+    tid = _get(ref)
+    try:
+        if body and body.body and body.body.strip():
+            core.message(tid, role="user", body=body.body.strip())
+        return core.close(tid, role="user")
+    except (KeyError, ValueError, PermissionError) as e:
+        raise HTTPException(status_code=400 if isinstance(e, (ValueError, PermissionError)) else 404, detail=str(e))
+
+
+@app.post("/api/tickets/{ref}/reopen", status_code=200)
+def api_reopen(ref: str) -> dict[str, Any]:
+    tid = _get(ref)
+    try:
+        return core.reopen(tid, role="user")
     except (KeyError, ValueError, PermissionError) as e:
         raise HTTPException(status_code=400 if isinstance(e, (ValueError, PermissionError)) else 404, detail=str(e))
 

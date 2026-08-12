@@ -5,8 +5,13 @@ A ticket IS a chat between the user and workers. Each message has:
   name       optional — which worker/agent, for future multi-collab
   body       the text
   time       created_at
-Status changes and approval actions live as message events, so the thread
-always tells the whole story.
+
+The ONLY real machine state is `state`: 'active' | 'done'.
+'waiting'/'review' is DERIVED: an active ticket whose last message is from a
+worker — the ball is in the user's court. The UI sorts those to the top.
+
+Message = primitive (always allowed). State flips (close/reopen) = user-only
+by default; workers need Full Access Mode.
 """
 
 from __future__ import annotations
@@ -21,8 +26,13 @@ ROLE_USER = "user"
 ROLE_ASSISTANT = "assistant"
 ROLE_SYSTEM = "system"
 VALID_ROLES = {ROLE_USER, ROLE_ASSISTANT, ROLE_SYSTEM}
-APPROVE = "approve"
-UNAPPROVE = "unapprove"
+
+STATE_ACTIVE = "active"
+STATE_DONE = "done"
+VALID_STATES = {STATE_ACTIVE, STATE_DONE}
+
+ACTION_CLOSE = "close"
+ACTION_REOPEN = "reopen"
 
 
 def ticket_no(ticket_id: int) -> str:
@@ -51,6 +61,7 @@ def _today() -> str:
 def _ticket_row(row: sqlite3.Row) -> dict[str, Any]:
     d = dict(row)
     d["no"] = ticket_no(d["id"])
+    d["needs_review"] = False
     return d
 
 
@@ -66,9 +77,9 @@ def add_ticket(title: str, created_by: str = ROLE_USER) -> dict[str, Any]:
     try:
         now = _now()
         cur = conn.execute(
-            "INSERT INTO tickets (title, status, created_by, created_at, updated_at) "
-            "VALUES (?, '', ?, ?, ?)",
-            (title.strip(), created_by, now, now),
+            "INSERT INTO tickets (title, status, state, created_by, created_at, updated_at) "
+            "VALUES (?, '', ?, ?, ?, ?)",
+            (title.strip(), STATE_ACTIVE, created_by, now, now),
         )
         conn.commit()
         new_id = cur.lastrowid
@@ -88,6 +99,7 @@ def get_ticket(ticket_id: int, conn: sqlite3.Connection | None = None) -> dict[s
             raise KeyError(f"Ticket not found: {ticket_no(ticket_id)}")
         t = _ticket_row(row)
         t["messages"] = _messages(conn, ticket_id)
+        t["needs_review"] = _needs_review(t["messages"])
         return t
     finally:
         if own:
@@ -101,18 +113,30 @@ def _messages(conn: sqlite3.Connection, ticket_id: int) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+def _needs_review(messages: list[dict[str, Any]]) -> bool:
+    """Ball in the user's court: last message came from a worker (not user)."""
+    if not messages:
+        return False
+    return messages[-1]["role"] != ROLE_USER
+
+
 def list_tickets(done: bool = False, limit: int | None = None) -> list[dict[str, Any]]:
     """Sequential list. Active by default, Done when done=True.
 
-    Ordered newest first; day-grouped by created_at date.
+    Ordered newest first; within a day the needs-review tickets float to top.
     """
     conn = db.connect()
     try:
+        state = STATE_DONE if done else STATE_ACTIVE
         rows = conn.execute(
-            "SELECT * FROM tickets WHERE approved = ? ORDER BY id DESC",
-            (1 if done else 0,),
+            "SELECT * FROM tickets WHERE state = ? ORDER BY id DESC", (state,)
         ).fetchall()
-        tickets = [_ticket_row(r) for r in rows]
+        tickets = []
+        for r in rows:
+            t = _ticket_row(r)
+            t["messages"] = _messages(conn, r["id"])
+            t["needs_review"] = _needs_review(t["messages"])
+            tickets.append(t)
         if limit is not None:
             tickets = tickets[:limit]
         return tickets
@@ -121,7 +145,10 @@ def list_tickets(done: bool = False, limit: int | None = None) -> list[dict[str,
 
 
 def group_by_day(tickets: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Group a ticket list into [{day, label, tickets:[...]}], newest day first."""
+    """Group a ticket list into [{day, label, tickets:[...]}], newest day first.
+
+    Within each day, tickets needing review float to the top.
+    """
     groups: dict[str, list[dict[str, Any]]] = {}
     for t in tickets:
         day = t["created_at"][:10]
@@ -134,7 +161,8 @@ def group_by_day(tickets: list[dict[str, Any]]) -> list[dict[str, Any]]:
             label = "Today"
         elif day == (date.today().fromordinal(date.today().toordinal() - 1).isoformat()):
             label = "Yesterday"
-        result.append({"day": day, "label": label, "tickets": groups[day]})
+        day_tickets = sorted(groups[day], key=lambda t: (not t["needs_review"],))
+        result.append({"day": day, "label": label, "tickets": day_tickets})
     return result
 
 
@@ -144,15 +172,13 @@ def status_summary() -> dict[str, Any]:
     return {
         "active_count": len(active),
         "done_count": len(done),
-        "pending_approval": [
-            t for t in active if t.get("pending_approval")
-        ],
+        "needs_review": [t for t in active if t["needs_review"]],
         "peek": active[:10],
     }
 
 
 # ---------------------------------------------------------------------------
-# Messages — the chat
+# Messages — the chat (pure primitive, always allowed)
 # ---------------------------------------------------------------------------
 
 
@@ -163,28 +189,13 @@ def _insert_message(
     body: str,
     name: str | None = None,
     status_after: str | None = None,
-    approval_action: str | None = None,
+    action: str | None = None,
 ) -> None:
     conn.execute(
-        "INSERT INTO messages (ticket_id, role, name, body, status_after, approval_action, created_at) "
+        "INSERT INTO messages (ticket_id, role, name, body, status_after, action, created_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (ticket_id, role, name, body, status_after, approval_action, _now()),
+        (ticket_id, role, name, body, status_after, action, _now()),
     )
-
-
-def _require_approval_power(role: str) -> None:
-    """Approval flag flips are the user's call. Workers need Full Access Mode."""
-    if role == ROLE_USER:
-        return
-    conn = db.connect()
-    try:
-        if not db.full_access_enabled(conn):
-            raise PermissionError(
-                "Approval changes are user-only. Workers may request approval, "
-                "but flipping it requires `rect full-access on`."
-            )
-    finally:
-        conn.close()
 
 
 def message(
@@ -193,17 +204,15 @@ def message(
     body: str,
     name: str | None = None,
     status: str | None = None,
-    approve: bool | None = None,
-    action: str | None = None,
 ) -> dict[str, Any]:
-    """Append a chat message. Status is free (anyone). Approval is a flag —
-    only touched when explicitly requested via approve/action."""
+    """Append a chat message. Status is free (anyone may set it).
+
+    NEVER touches state — messages are pure. Use close()/reopen() for state.
+    """
     if role not in VALID_ROLES:
         raise ValueError(f"role must be one of {sorted(VALID_ROLES)}, got {role!r}")
     if body is None or not body.strip():
         raise ValueError("Message body cannot be empty.")
-    if approve is not None or action is not None:
-        _require_approval_power(role)
 
     conn = db.connect()
     try:
@@ -211,59 +220,74 @@ def message(
         if row is None:
             raise KeyError(f"Ticket not found: {ticket_no(ticket_id)}")
 
-        approval_action = action
-        if approve is True and action is None:
-            approval_action = APPROVE
-        elif approve is False and action is None:
-            approval_action = UNAPPROVE
+        _insert_message(conn, ticket_id, role, body.strip(), name=name, status_after=status)
 
-        _insert_message(
-            conn,
-            ticket_id,
-            role,
-            body.strip(),
-            name=name,
-            status_after=status,
-            approval_action=approval_action,
-        )
-
-        new_status = status if status is not None else row["status"]
-        new_approved = 1 if approve is True else (0 if approve is False else row["approved"])
-        # user replying (any message) clears pending — the ball is in their court
-        new_pending = 0 if approve is not None or role == ROLE_USER else row["pending_approval"]
-
-        conn.execute(
-            "UPDATE tickets SET status = ?, approved = ?, pending_approval = ?, updated_at = ? "
-            "WHERE id = ?",
-            (new_status, new_approved, new_pending, _now(), ticket_id),
-        )
+        if status is not None and status != row["status"]:
+            conn.execute(
+                "UPDATE tickets SET status = ?, updated_at = ? WHERE id = ?",
+                (status, _now(), ticket_id),
+            )
         conn.commit()
         return get_ticket(ticket_id, conn=conn)
     finally:
         conn.close()
 
 
-def request_approval(ticket_id: int, role: str, body: str = "pending approval — please check",
-                     name: str | None = None) -> dict[str, Any]:
-    """A worker (assistant/system) marks the ticket for user confirmation."""
+# ---------------------------------------------------------------------------
+# State flips — the only real machine state (user-only by default)
+# ---------------------------------------------------------------------------
+
+
+def _require_state_power(role: str) -> None:
+    """State flips are the user's call. Workers need Full Access Mode."""
     if role == ROLE_USER:
-        raise PermissionError("Only workers request approval.")
+        return
     conn = db.connect()
     try:
+        if not db.full_access_enabled(conn):
+            raise PermissionError(
+                "State changes (close/reopen) are user-only. "
+                "Workers may comment and request work, but flipping state "
+                "requires `rect full-access on`."
+            )
+    finally:
+        conn.close()
+
+
+def _flip_state(
+    ticket_id: int,
+    role: str,
+    new_state: str,
+    action: str,
+    body: str,
+) -> dict[str, Any]:
+    _require_state_power(role)
+    if new_state not in VALID_STATES:
+        raise ValueError(f"Invalid state: {new_state!r}")
+    conn = db.connect()
+    try:
+        row = conn.execute("SELECT * FROM tickets WHERE id = ?", (ticket_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"Ticket not found: {ticket_no(ticket_id)}")
+        _insert_message(conn, ticket_id, role, body, action=action)
         conn.execute(
-            "UPDATE tickets SET pending_approval = 1, updated_at = ? WHERE id = ?",
-            (_now(), ticket_id),
+            "UPDATE tickets SET state = ?, updated_at = ? WHERE id = ?",
+            (new_state, _now(), ticket_id),
         )
-        _insert_message(conn, ticket_id, role, body, name=name)
         conn.commit()
         return get_ticket(ticket_id, conn=conn)
     finally:
         conn.close()
 
 
-def mark_pending(ticket_id: int, role: str) -> dict[str, Any]:
-    """Backward-compat alias for request_approval."""
-    return request_approval(ticket_id, role)
+def close(ticket_id: int, role: str = ROLE_USER, body: str = "✅ closed") -> dict[str, Any]:
+    """Close → Done. Removes the ticket from your eyes."""
+    return _flip_state(ticket_id, role, STATE_DONE, ACTION_CLOSE, body)
+
+
+def reopen(ticket_id: int, role: str = ROLE_USER, body: str = "↩ reopened") -> dict[str, Any]:
+    """Reopen a done ticket → Active."""
+    return _flip_state(ticket_id, role, STATE_ACTIVE, ACTION_REOPEN, body)
 
 
 # ---------------------------------------------------------------------------

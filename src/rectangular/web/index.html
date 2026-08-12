@@ -47,8 +47,8 @@
   .reply { display: flex; gap: 8px; padding-top: 10px; border-top: 1px dashed var(--border); }
   .reply input { flex: 1; background: var(--panel2); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 8px 12px; }
   .reply button { background: var(--panel2); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 8px 12px; cursor: pointer; font-weight: 600; }
-  .reply .approve { background: var(--green); border-color: var(--green); color: #04231a; }
   .reply .close { background: var(--amber); border-color: var(--amber); color: #3a2a00; }
+  .review-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); margin-right: 4px; }
   .ticket-actions { display: flex; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); align-items: center; }
   .ticket-actions button { background: transparent; border: 1px solid var(--border); color: var(--dim); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
   .ticket-actions button:hover { border-color: var(--accent); color: var(--text); }
@@ -90,7 +90,7 @@
         <template x-for="t in day.tickets" :key="t.id">
           <div class="ticket">
             <div class="ticket-head" @click="open(t)">
-              <span class="id" x-text="t.no"></span>
+              <span class="id"><span class="review-dot" x-show="t.needs_review"></span><span x-text="t.no"></span></span>
               <span class="title" @dblclick.stop="startEditTitle(t)" x-show="editTicketId !== t.id" x-text="t.title"></span>
               <template x-if="editTicketId === t.id">
                 <span class="title">
@@ -99,7 +99,7 @@
                   <button class="edit-cancel" @click.stop="cancelEdit()">✕</button>
                 </span>
               </template>
-              <span class="status" :class="{ 'pending': t.pending_approval, 'done': t.approved }" @dblclick.stop="startEditStatus(t)" x-show="editStatusId !== t.id" x-text="t.status || '—'"></span>
+              <span class="status" :class="{ 'done': t.state === 'done' }" @dblclick.stop="startEditStatus(t)" x-show="editStatusId !== t.id" x-text="t.status || '—'"></span>
               <template x-if="editStatusId === t.id">
                 <span class="status" style="background:var(--panel2);border-color:var(--accent);">
                   <input class="status-input" style="width:120px" x-model="editStatusVal" @keydown.enter="saveEdit(t)" @keydown.escape="cancelEdit()" @click.stop>
@@ -122,12 +122,9 @@
                 </div>
               </template>
               <div class="reply">
-                <input x-model="replyText" @keydown.enter="reply(t, false)" placeholder="Write back ... (Enter = comment)">
-                <button @click="reply(t, false)">Comment</button>
-                <template x-if="!t.approved">
-                  <button class="approve" x-show="t.pending_approval" @click="reply(t, true, 'approve')">✓ Approve</button>
-                  <button class="close" x-show="!t.pending_approval" @click="reply(t, true, 'close')">Close</button>
-                </template>
+                <input x-model="replyText" @keydown.enter="reply(t)" placeholder="Write back ... (Enter = comment)">
+                <button @click="reply(t)">Comment</button>
+                <button class="close" @click="closeTicket(t)" x-show="t.state !== 'done'">Close</button>
               </div>
               <div class="ticket-actions">
                 <button class="danger" @click="deleteTicket(t)">🗑 Delete</button>
@@ -206,18 +203,27 @@ function rectApp() {
       }
     },
 
-    async reply(t, approve, action) {
+    async reply(t) {
       const body = this.replyText.trim();
-      if (!body && !approve) return;
+      if (!body) return;
       await fetch('/api/tickets/' + t.no + '/comments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          body: body || (approve ? (action === 'close' ? '✅ closed' : '✅ approved') : ''),
-          role: 'user', approve: approve || null, action: action || null
-        })
+        body: JSON.stringify({ body, role: 'user' })
       });
       this.replyText = '';
+      await this.load();
+    },
+
+    async closeTicket(t) {
+      const body = this.replyText.trim();
+      const payload = body ? { body } : {};
+      this.replyText = '';
+      await fetch('/api/tickets/' + t.no + '/close', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
       await this.load();
     },
 

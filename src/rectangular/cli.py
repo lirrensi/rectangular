@@ -3,6 +3,9 @@
 UI is first; the CLI exists for agents and orchestrator scripts.
 CLI messages default to role=system (the machine talking). Pass --as user
 to speak as the user. The UI always speaks as user.
+
+Messages are pure (always allowed). State flips (close/reopen) are user-only;
+workers need Full Access Mode.
 """
 
 from __future__ import annotations
@@ -132,9 +135,9 @@ def _render_peek(tickets: list[dict[str, Any]]) -> None:
         console.print("  (no active tickets)")
         return
     for t in tickets:
-        pending = " ⏳" if t.get("pending_approval") else ""
+        review = " 👁" if t["needs_review"] else ""
         console.print(
-            f"  [{t['no']}] {t['status'] or '-':<12} {t['title']}{pending}"
+            f"  [{t['no']}] {t['status'] or '-':<12} {t['title']}{review}"
         )
 
 
@@ -143,8 +146,8 @@ def _render_day_group(tickets: list[dict[str, Any]]) -> None:
     for g in groups:
         console.print(f"\n[bold]{g['label']}[/bold]")
         for t in g["tickets"]:
-            pending = " ⏳" if t.get("pending_approval") else ""
-            console.print(f"  [{t['no']}] {t['status'] or '-':<12} {t['title']}{pending}")
+            review = " 👁" if t["needs_review"] else ""
+            console.print(f"  [{t['no']}] {t['status'] or '-':<12} {t['title']}{review}")
 
 
 def _role_style(role: str) -> str:
@@ -157,9 +160,8 @@ def _role_style(role: str) -> str:
 
 def _render_thread(t: dict[str, Any]) -> None:
     console.print(f"\n[bold]{t['no']}[/bold] — {t['title']}")
-    console.print(f"  status: {t['status'] or '-'}  "
-                  f"approved: {'yes' if t['approved'] else 'no'}  "
-                  f"pending: {'yes' if t['pending_approval'] else 'no'}")
+    console.print(f"  state: {t['state']}  status: {t['status'] or '-'}  "
+                  f"needs_review: {'yes' if t['needs_review'] else 'no'}")
     console.print("  ---")
     for m in t["messages"]:
         who = _role_style(m["role"])
@@ -167,8 +169,8 @@ def _render_thread(t: dict[str, Any]) -> None:
         extra = ""
         if m["status_after"]:
             extra += f" → status: {m['status_after']}"
-        if m["approval_action"]:
-            extra += f" → {m['approval_action']}"
+        if m["action"]:
+            extra += f" → {m['action']}"
         console.print(f"  {who}{sender} {_fmt_time(m['created_at'])}:{extra}")
         console.print(f"    {m['body']}")
     console.print("")
@@ -183,17 +185,17 @@ def status(json_output: bool) -> None:
         click.echo(json.dumps(s, indent=2, default=str))
         return
     console.print(f"Active: {s['active_count']}   Done: {s['done_count']}")
-    if s["pending_approval"]:
-        console.print(f"⏳ pending approval: {len(s['pending_approval'])}")
+    if s["needs_review"]:
+        console.print(f"👁 needs your eyes: {len(s['needs_review'])}")
     console.print("\n[bold]LATEST[/bold]")
     _render_peek(s["peek"])
 
 
 @main.command()
-@click.option("--done", is_flag=True, help="List done (approved) tickets instead of active")
+@click.option("--done", is_flag=True, help="List done tickets instead of active")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 def list_cmd(done: bool, json_output: bool) -> None:
-    """Sequential list, day-grouped, newest first."""
+    """Sequential list, day-grouped, newest first (needs-review on top)."""
     tickets = core.list_tickets(done=done)
     if json_output:
         click.echo(json.dumps(core.group_by_day(tickets), indent=2, default=str))
@@ -244,7 +246,7 @@ def comment(ref: str, body: str, status: str | None, role: str, name: str | None
     """Append a chat message (pure primitive — always allowed).
 
     Role defaults to system (the machine talking). --as user to speak as you.
-    Approval is a separate flag; use `rect approve` / `rect close` / `rect pending`.
+    Never touches state. Close/reopen are separate commands.
     """
     try:
         tid = core.parse_ticket_no(ref)
@@ -274,29 +276,14 @@ def update(ref: str, new_status: str, role: str) -> None:
 @main.command()
 @click.argument("ref")
 @_role_option
-def approve(ref: str, role: str) -> None:
-    """Approve a ticket → Done. User only; workers need Full Access Mode."""
-    try:
-        tid = core.parse_ticket_no(ref)
-        t = core.message(tid, role=role, body="✅ approved", approve=True)
-    except (KeyError, ValueError, PermissionError) as e:
-        console.print(str(e), style="red")
-        sys.exit(1)
-    console.print(f"{t['no']} approved → Done")
-
-
-@main.command()
-@click.argument("ref")
-@_role_option
 def close(ref: str, role: str) -> None:
-    """Manually close a ticket → Done (no approval ceremony).
+    """Close a ticket → Done (removes it from your eyes).
 
-    For tickets with no pending approval. User only; workers need Full Access Mode.
+    User only; workers need Full Access Mode.
     """
     try:
         tid = core.parse_ticket_no(ref)
-        t = core.message(tid, role=role, body="✅ closed", approve=True,
-                         action="close")
+        t = core.close(tid, role=role)
     except (KeyError, ValueError, PermissionError) as e:
         console.print(str(e), style="red")
         sys.exit(1)
@@ -307,10 +294,10 @@ def close(ref: str, role: str) -> None:
 @click.argument("ref")
 @_role_option
 def reopen(ref: str, role: str) -> None:
-    """Reopen a done ticket → Active. User only; workers need Full Access Mode."""
+    """Reopen a done ticket → Active. User only; workers need Full Access."""
     try:
         tid = core.parse_ticket_no(ref)
-        t = core.message(tid, role=role, body="↩ reopened", approve=False)
+        t = core.reopen(tid, role=role)
     except (KeyError, ValueError, PermissionError) as e:
         console.print(str(e), style="red")
         sys.exit(1)
@@ -318,24 +305,9 @@ def reopen(ref: str, role: str) -> None:
 
 
 @main.command()
-@click.argument("ref")
-@click.argument("body", default="pending approval — please check")
-@_name_option
-def pending(ref: str, body: str, name: str | None) -> None:
-    """Worker requests approval (role: assistant by default)."""
-    try:
-        tid = core.parse_ticket_no(ref)
-        t = core.request_approval(tid, role=core.ROLE_ASSISTANT, body=body, name=name)
-    except (KeyError, ValueError, PermissionError) as e:
-        console.print(str(e), style="red")
-        sys.exit(1)
-    console.print(f"{t['no']} ⏳ pending approval")
-
-
-@main.command()
 @click.argument("action", type=click.Choice(["on", "off"]))
 def full_access(action: str) -> None:
-    """Toggle Full Access Mode (workers get destructive powers)."""
+    """Toggle Full Access Mode (workers get state/destructive powers)."""
     conn = db.connect()
     try:
         db.set_setting(conn, "full_access", "1" if action == "on" else "0")

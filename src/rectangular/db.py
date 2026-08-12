@@ -2,6 +2,11 @@
 
 Everything lives in .rect/rect.db. Created lazily on first use (rect ui / first
 insert). No init ceremony. The whole .rect/ folder is committed to git.
+
+State model (v3):
+  tickets.state = 'active' | 'done'   (the only real machine state)
+  messages.action = 'close' | 'reopen' | NULL   (audit trail of state flips)
+  'waiting'/'review' is DERIVED: active ticket whose last message is from a worker.
 """
 
 from __future__ import annotations
@@ -14,28 +19,27 @@ DB_FILE_NAME = "rect.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS tickets (
-    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    title            TEXT NOT NULL,
-    status           TEXT NOT NULL DEFAULT '',
-    approved         INTEGER NOT NULL DEFAULT 0,
-    pending_approval INTEGER NOT NULL DEFAULT 0,
-    created_by       TEXT NOT NULL DEFAULT 'user',
-    created_at       TEXT NOT NULL,
-    updated_at       TEXT NOT NULL
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    title      TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT '',
+    state      TEXT NOT NULL DEFAULT 'active',   -- 'active' | 'done'
+    created_by TEXT NOT NULL DEFAULT 'user',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 
 -- The chat. A ticket IS a conversation.
 -- role: user | assistant | system   (UI=user, CLI=system by default)
 -- name: optional, for future multi-collab (which worker/agent)
 CREATE TABLE IF NOT EXISTS messages (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    ticket_id       INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
-    role            TEXT NOT NULL DEFAULT 'system',
-    name            TEXT,
-    body            TEXT NOT NULL,
-    status_after    TEXT,                       -- status set by this message
-    approval_action TEXT,                       -- 'approve' | 'unapprove' | NULL
-    created_at      TEXT NOT NULL
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id    INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    role         TEXT NOT NULL DEFAULT 'system',
+    name         TEXT,
+    body         TEXT NOT NULL,
+    status_after TEXT,                       -- status set by this message
+    action       TEXT,                       -- 'close' | 'reopen' | NULL
+    created_at   TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -66,31 +70,49 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
-def _migrate(conn: sqlite3.Connection) -> None:
-    """Migrate legacy `comments` table (author) → `messages` (role, name)."""
-    has_comments = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='comments'"
-    ).fetchone()
-    has_messages = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='messages'"
-    ).fetchone()
-    if not has_comments or has_messages:
-        return
+def _table_cols(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
-    conn.execute("ALTER TABLE comments RENAME TO messages")
-    # add name column (nullable)
-    try:
-        conn.execute("ALTER TABLE messages ADD COLUMN name TEXT")
-    except sqlite3.OperationalError:
-        pass
-    # rename author → role, then map old values
-    try:
-        conn.execute("ALTER TABLE messages RENAME COLUMN author TO role")
-    except sqlite3.OperationalError:
-        pass
-    conn.execute("UPDATE messages SET role = 'system' WHERE role = 'agent'")
-    conn.execute("UPDATE messages SET role = 'user' WHERE role = 'user'")
-    conn.commit()
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Migrate legacy schemas to v3 (tickets.state, messages.action)."""
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+
+    # ---- v1 → v2: comments(author) → messages(role, name) ----
+    if "comments" in tables and "messages" not in tables:
+        conn.execute("ALTER TABLE comments RENAME TO messages")
+        try:
+            conn.execute("ALTER TABLE messages ADD COLUMN name TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE messages RENAME COLUMN author TO role")
+        except sqlite3.OperationalError:
+            pass
+        conn.execute("UPDATE messages SET role = 'system' WHERE role = 'agent'")
+        conn.commit()
+
+    # ---- messages: approval_action → action (re-check after possible rename) ----
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "messages" in tables:
+        mcols = _table_cols(conn, "messages")
+        if "action" not in mcols and "approval_action" in mcols:
+            conn.execute("ALTER TABLE messages RENAME COLUMN approval_action TO action")
+            conn.execute("UPDATE messages SET action = 'close' WHERE action = 'approve'")
+            conn.execute("UPDATE messages SET action = 'reopen' WHERE action = 'unapprove'")
+            conn.commit()
+
+    # ---- v2 → v3: tickets.approved/pending_approval → tickets.state ----
+    if "tickets" in tables:
+        cols = _table_cols(conn, "tickets")
+        if "state" not in cols:
+            conn.execute("ALTER TABLE tickets ADD COLUMN state TEXT NOT NULL DEFAULT 'active'")
+        if "approved" in cols:
+            conn.execute("UPDATE tickets SET state = 'done' WHERE approved = 1")
+            conn.execute("ALTER TABLE tickets DROP COLUMN approved")
+        if "pending_approval" in cols:
+            conn.execute("ALTER TABLE tickets DROP COLUMN pending_approval")
+        conn.commit()
 
 
 def _seed_settings(conn: sqlite3.Connection) -> None:
