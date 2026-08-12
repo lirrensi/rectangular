@@ -15,6 +15,7 @@
   body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; min-height: 100vh; }
   header { display: flex; align-items: center; gap: 16px; padding: 16px 24px; border-bottom: 1px solid var(--border); }
   header h1 { font-size: 18px; font-weight: 700; }
+  header .cwd { font-size: 12px; color: var(--dim); font-family: ui-monospace, monospace; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tabs { display: flex; gap: 6px; background: var(--panel); padding: 4px; border-radius: 10px; }
   .tab { border: none; background: transparent; color: var(--dim); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; }
   .tab.active { background: var(--panel2); color: var(--text); }
@@ -55,9 +56,14 @@
   .ticket-actions .danger:hover { border-color: #ef4444; color: #ef4444; }
   .ticket-actions input { flex: 1; background: var(--panel2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 10px; font-size: 12px; }
   .title-input, .status-input { background: var(--panel2); border: 1px solid var(--accent); color: var(--text); border-radius: 6px; padding: 2px 8px; font-size: inherit; }
+  .title-input { width: 100%; min-width: 240px; resize: vertical; max-height: 120px; }
   .edit-confirm, .edit-cancel { background: transparent; border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 2px 8px; cursor: pointer; font-size: 12px; }
   .edit-confirm:hover { border-color: var(--green); color: var(--green); }
   .edit-cancel:hover { border-color: #ef4444; color: #ef4444; }
+  .status-field { display: flex; align-items: center; gap: 6px; }
+  .status-field input { background: var(--panel2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--dim); width: 140px; }
+  .status-field input:focus { border-color: var(--accent); color: var(--text); width: 200px; }
+  .status-field input:not(:placeholder-shown) { color: var(--text); }
   .empty { color: var(--dim); text-align: center; padding: 40px 0; }
 </style>
 </head>
@@ -65,6 +71,7 @@
 <div x-data="rectApp()" x-init="init()">
   <header>
     <h1>📐 Rectangular</h1>
+    <span class="cwd" :title="cwd" x-text="cwd"></span>
     <div class="tabs">
       <button class="tab" :class="{'active': tab === 'active'}" @click="switchTab('active')">
         Active <span x-text="counts.active"></span>
@@ -93,20 +100,18 @@
               <span class="id"><span class="review-dot" x-show="t.needs_review"></span><span x-text="t.no"></span></span>
               <span class="title" @dblclick.stop="startEditTitle(t)" x-show="editTicketId !== t.id" x-text="t.title"></span>
               <template x-if="editTicketId === t.id">
-                <span class="title">
-                  <input class="title-input" x-model="editTitleVal" @keydown.enter="saveEdit(t)" @keydown.escape="cancelEdit()" @click.stop>
+                <span class="title" style="flex: 2; display: flex; align-items: center; gap: 6px;">
+                  <textarea class="title-input" x-model="editTitleVal" @keydown.enter.prevent="saveEdit(t)" @keydown.escape="cancelEdit()" @click.stop rows="2" style="min-height: 44px;"></textarea>
                   <button class="edit-confirm" @click.stop="saveEdit(t)">✓</button>
                   <button class="edit-cancel" @click.stop="cancelEdit()">✕</button>
                 </span>
               </template>
-              <span class="status" :class="{ 'done': t.state === 'done' }" @dblclick.stop="startEditStatus(t)" x-show="editStatusId !== t.id" x-text="t.status || '—'"></span>
-              <template x-if="editStatusId === t.id">
-                <span class="status" style="background:var(--panel2);border-color:var(--accent);">
-                  <input class="status-input" style="width:120px" x-model="editStatusVal" @keydown.enter="saveEdit(t)" @keydown.escape="cancelEdit()" @click.stop>
-                  <button class="edit-confirm" @click.stop="saveEdit(t)">✓</button>
-                  <button class="edit-cancel" @click.stop="cancelEdit()">✕</button>
-                </span>
-              </template>
+              <span class="status-field" @click.stop>
+                <input :placeholder="t.status ? '' : 'type status here'" :value="t.status"
+                       @change="setStatus(t, $event.target.value)"
+                       @keydown.enter="$event.target.blur()"
+                       title="Status — free text for navigation. Edit anytime.">
+              </span>
             </div>
             <div class="chat" x-show="openId === t.id">
               <template x-for="c in t.messages" :key="c.id">
@@ -116,7 +121,7 @@
                     <span x-show="c.name" x-text="'(' + c.name + ')'"></span>
                     <span x-text="c.created_at"></span>
                     <span class="extra" x-show="c.status_after" x-text="'→ status: ' + c.status_after"></span>
-                    <span class="extra" x-show="c.approval_action" x-text="'→ ' + c.approval_action"></span>
+                    <span class="extra" x-show="c.action" x-text="'→ ' + c.action"></span>
                   </div>
                   <div class="body" x-text="c.body"></div>
                 </div>
@@ -144,13 +149,12 @@ function rectApp() {
     tab: 'active',
     days: [],
     counts: { active: 0, done: 0 },
+    cwd: '',
     openId: null,
     newTitle: '',
     replyText: '',
     editTicketId: null,
-    editStatusId: null,
     editTitleVal: '',
-    editStatusVal: '',
     fullAccess: false,
 
     async init() {
@@ -179,6 +183,7 @@ function rectApp() {
       this.days = await r.json();
       const s = await (await fetch('/api/status')).json();
       this.counts = { active: s.active_count, done: s.done_count };
+      this.cwd = s.cwd || '';
     },
 
     async addTicket() {
@@ -230,29 +235,30 @@ function rectApp() {
     startEditTitle(t) {
       this.editTicketId = t.id; this.editTitleVal = t.title;
     },
-    startEditStatus(t) {
-      this.editStatusId = t.id; this.editStatusVal = t.status || '';
-    },
     cancelEdit() {
-      this.editTicketId = null; this.editStatusId = null;
+      this.editTicketId = null;
+    },
+
+    async setStatus(t, value) {
+      const v = (value || '').trim();
+      if (v === (t.status || '')) return;
+      await fetch('/api/tickets/' + t.no + '/status', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: v })
+      });
+      await this.load();
     },
 
     async saveEdit(t) {
-      const payload = {};
-      if (this.editTicketId === t.id) {
-        const v = this.editTitleVal.trim();
-        if (v && v !== t.title) payload.title = v;
+      const v = this.editTitleVal.trim();
+      if (v && v !== t.title) {
+        await fetch('/api/tickets/' + t.no, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: v, role: 'user' })
+        });
       }
-      if (this.editStatusId === t.id) {
-        const v = this.editStatusVal.trim();
-        if (v !== t.status) payload.status = v;
-      }
-      if (!Object.keys(payload).length) { this.cancelEdit(); return; }
-      await fetch('/api/tickets/' + t.no, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, role: 'user' })
-      });
       this.cancelEdit();
       await this.load();
     },

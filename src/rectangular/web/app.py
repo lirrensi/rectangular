@@ -61,7 +61,9 @@ def index() -> str:
 
 @app.get("/api/status")
 def api_status() -> dict[str, Any]:
-    return core.status_summary()
+    s = core.status_summary()
+    s["cwd"] = str(Path.cwd())
+    return s
 
 
 @app.get("/api/tickets")
