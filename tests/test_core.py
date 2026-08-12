@@ -337,3 +337,16 @@ def test_migrate_legacy_comments_and_approved_to_state(tmp_path, monkeypatch):
     assert active_t["state"] == "active"  # pending_approval no longer exists
     assert "approved" not in active_t
     assert "pending_approval" not in active_t
+
+# ---------------------------------------------------------------------------
+# RECTANGULAR LAW: no curves. border-radius is forbidden.
+# ---------------------------------------------------------------------------
+
+
+def test_no_border_radius_in_ui():
+    """The app is named RECTANGULAR. The UI must be all angles, forever."""
+    from pathlib import Path
+
+    html = (Path(__file__).parent.parent / "src" / "rectangular" / "web" / "index.html").read_text(encoding="utf-8")
+    assert "border-radius" not in html, "border-radius is FORBIDDEN in Rectangular. Angles only."
+    assert "borderRadius" not in html, "borderRadius (inline style) is FORBIDDEN in Rectangular."

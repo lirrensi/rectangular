@@ -11,6 +11,7 @@ A chat-first, UI-first task system. One folder, one SQLite database, zero ceremo
 - **No dependency graph.** Want to link tickets? Write it in a comment.
 - **No hand-written files.** The DB is the DB. Nobody edits YAML/JSON by hand. Agents only use the `rect` CLI.
 - **Ticket is a chat.** One sequential thread per ticket. Worker writes their report, I write back. It's exactly this conversation — abstracted for many workers.
+- **RECTANGULAR LAW: no curved corners.** The app is called Rectangular. The UI must be all angles, forever. `border-radius` is forbidden by test (`test_no_border_radius_in_ui`). Any CSS that introduces curves is a crime against the name.
 
 ---
 
