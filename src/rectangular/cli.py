@@ -53,8 +53,7 @@ def _running_ui() -> str | None:
 
 
 def _write_ui_state(pid: int, port: int) -> None:
-    d = db.rect_dir()
-    d.mkdir(parents=True, exist_ok=True)
+    d = db.ensure_rect_dir()
     (d / _UI_STATE_FILE).write_text(
         json.dumps({"pid": pid, "port": port}), encoding="utf-8"
     )
