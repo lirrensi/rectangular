@@ -54,23 +54,13 @@
   .full-access .switch .knob { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; background: var(--text); transition: left .15s; }
   .full-access .switch.on .knob { left: 18px; }
   main { max-width: 860px; margin: 0 auto; padding: 24px; }
+  main.grid { max-width: none; }
   .day { margin-bottom: 28px; }
   .day h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin-bottom: 10px; }
-  .day.grid .day-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; align-items: stretch; }
-  .ticket-card { background: var(--panel); border: 1px solid var(--border); padding: 12px; cursor: pointer; height: 120px; min-height: 120px; max-height: 120px; display: flex; flex-direction: column; gap: 6px; transition: border-color .15s, background .15s; overflow: hidden; }
-  .ticket-card:hover { border-color: var(--accent); background: var(--panel2); }
-  .ticket-card .card-top { display: flex; align-items: center; gap: 6px; }
-  .ticket-card .card-title { font-weight: 600; font-size: 13px; line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
-  .ticket-card .card-status { font-size: 12px; color: var(--amber); margin-top: auto; }
-  .ticket-card .card-state { font-size: 11px; color: var(--dim); }
-  .ticket-card.expanded { grid-column: 1 / -1; height: auto; min-height: 0; max-height: 70vh; cursor: default; border-color: var(--accent); background: var(--panel2); padding: 16px; overflow-y: auto; }
-  .ticket-card.expanded:hover { background: var(--panel2); }
-  .card-expanded { display: flex; flex-direction: column; gap: 12px; }
-  .card-expanded-head { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-  .card-expanded-title { flex: 1; font-weight: 600; font-size: 15px; min-width: 200px; word-break: break-word; }
-  .card-close { background: transparent; border: 1px solid var(--border); color: var(--dim); padding: 6px 12px; cursor: pointer; font-size: 12px; font-weight: 600; margin-left: auto; }
-  .card-close:hover { border-color: #ef4444; color: #ef4444; }
-  .status-row { display: flex; align-items: stretch; border-top: 1px solid var(--border); transition: border-color .15s; }
+  .day.grid .day-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 12px; align-items: stretch; }
+  .grid-card { background: var(--panel); border: 1px solid var(--border); padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; transition: border-color .15s, background .15s; }
+  .grid-card:hover { border-color: var(--accent); }
+  .status-row { display: flex; align-items: stretch; transition: border-color .15s; }
   .status-row:hover { border-color: var(--dim); }
   .status-row:focus-within { border-color: var(--accent); }
   .status-row.has-value { border-color: var(--accent); }
@@ -80,25 +70,31 @@
   .status-row input { flex: 1; background: transparent; border: none; padding: 8px 12px; font-size: 13px; color: var(--text); outline: none; font-family: inherit; min-width: 0; }
   .status-row input::placeholder { color: var(--dim); font-style: italic; }
   .ticket { background: var(--panel); border: 1px solid var(--border); margin-bottom: 10px; overflow: hidden; }
-  .ticket-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; cursor: pointer; }
+  .ticket-head { display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px; cursor: pointer; }
+  .ticket-head .id { padding-top: 2px; }
   .ticket-head:hover { background: var(--panel2); }
   .id { color: var(--accent); font-weight: 700; font-size: 13px; min-width: 58px; }
   .claim { font-size: 13px; cursor: default; }
   .title { flex: 1; font-weight: 600; }
-  .chat { border-top: 1px solid var(--border); padding: 12px 16px; }
+  .chat { padding: 12px 16px; }
   .msg { margin-bottom: 12px; }
   .msg .meta { font-size: 12px; color: var(--dim); margin-bottom: 3px; }
   .msg .meta .who { font-weight: 700; }
   .who.user { color: var(--user); } .who.assistant { color: var(--agent); } .who.system { color: var(--amber); }
   .msg .body { font-size: 14px; line-height: 1.45; white-space: pre-wrap; }
   .msg .extra { font-size: 12px; color: var(--dim); margin-top: 2px; }
-  .reply { display: flex; gap: 8px; padding-top: 10px; border-top: 1px dashed var(--border); }
-  .reply input { flex: 1; background: var(--panel2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; }
-  .reply button { background: var(--panel2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; cursor: pointer; font-weight: 600; }
-  .reply .close { background: var(--amber); border-color: var(--amber); color: #3a2a00; }
-  .reply .reopen { background: var(--green); border-color: var(--green); color: #00331f; }
+  .reply { display: flex; align-items: stretch; border: 1px solid var(--border); transition: border-color .15s; }
+  .reply:focus-within { border-color: var(--accent); }
+  .reply input { flex: 1; background: transparent; border: none; outline: none; color: var(--text); padding: 8px 12px; font: inherit; font-size: 13px; min-width: 0; }
+  .reply input::placeholder { color: var(--dim); font-style: italic; }
+  .reply button { background: transparent; border: none; color: var(--text); padding: 0 14px; cursor: pointer; font-weight: 600; font-size: 13px; border-left: 1px solid var(--border); transition: background .15s, color .15s; }
+  .reply button:hover { background: var(--panel2); }
+  .reply .close { color: var(--amber); }
+  .reply .reopen { color: var(--green); }
+  .reply .close:hover { background: var(--amber); color: #3a2a00; }
+  .reply .reopen:hover { background: var(--green); color: #00331f; }
   .review-dot { display: inline-block; width: 8px; height: 8px; background: var(--amber); margin-right: 4px; }
-  .ticket-actions { display: flex; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); align-items: center; }
+  .ticket-actions { display: flex; gap: 6px; margin-top: 10px; padding-top: 10px; align-items: center; }
   .ticket-actions button { background: transparent; border: 1px solid var(--border); color: var(--dim); padding: 4px 10px; cursor: pointer; font-size: 12px; }
   .ticket-actions button:hover { border-color: var(--accent); color: var(--text); }
   .ticket-actions .danger:hover { border-color: #ef4444; color: #ef4444; }
@@ -150,7 +146,7 @@
     </div>
   </header>
 
-  <main>
+  <main :class="view">
     <div class="new-ticket">
       <input x-model="newTitle" @keydown.enter="addTicket()" placeholder="Type a task, press + ... voice dump welcome">
       <button @click="addTicket()">＋</button>
@@ -161,59 +157,48 @@
         <div class="day-body">
         <template x-if="view === 'grid'">
           <template x-for="t in day.tickets" :key="t.id">
-            <div class="ticket-card" :class="{ expanded: expandedCardId === t.id }"
-                 @click="expandedCardId === t.id ? null : openFromCard(t)">
-              <!-- compact view -->
-              <div class="card-compact" x-show="expandedCardId !== t.id" :title="t.title">
-                <div class="card-top">
-                  <span class="id"><span class="review-dot" x-show="t.needs_review"></span><span x-text="t.no"></span></span>
-                  <span class="claim" x-show="t.claimed_by" :title="'Claimed by ' + t.claimed_by" x-text="'🔒'"></span>
-                </div>
-                <div class="card-title" x-text="t.title"></div>
-                <div class="card-status" x-show="t.status" x-text="t.status"></div>
-                <div class="card-state" x-text="t.state === 'done' ? '✓ done' : (t.needs_review ? '👁 review' : '')"></div>
-              </div>
-              <!-- expanded view -->
-              <div class="card-expanded" x-show="expandedCardId === t.id">
-                <div class="card-expanded-head">
-                  <span class="id">
-                    <span class="review-dot" x-show="t.needs_review"></span>
-                    <span x-text="t.no"></span>
+            <div class="grid-card">
+              <div class="ticket-head" @click="toggleGridCard(t)">
+                <span class="id"><span class="review-dot" x-show="t.needs_review"></span><span x-text="t.no"></span></span>
+                <span class="claim" x-show="t.claimed_by" :title="'Claimed by ' + t.claimed_by + ' (soft lock)'" x-text="'🔒'"></span>
+                <span class="title" @dblclick.stop="startEditTitle(t)" x-show="editTicketId !== t.id" x-text="t.title"></span>
+                <template x-if="editTicketId === t.id">
+                  <span class="title" style="flex: 2; display: flex; align-items: center; gap: 6px;">
+                    <textarea class="title-input" x-model="editTitleVal" @keydown.enter.prevent="saveEdit(t)" @keydown.escape="cancelEdit()" @click.stop rows="2" style="min-height: 44px;"></textarea>
+                    <button class="edit-confirm" @click.stop="saveEdit(t)">✓</button>
+                    <button class="edit-cancel" @click.stop="cancelEdit()">✕</button>
                   </span>
-                  <span class="claim" x-show="t.claimed_by" :title="'Claimed by ' + t.claimed_by" x-text="'🔒'"></span>
-                  <span class="card-expanded-title" x-text="t.title"></span>
-                  <button class="card-close" @click="closeCard()" title="Close (Esc)">✕ Close</button>
-                </div>
-                <div class="status-row" :class="{ 'has-value': t.status }" @click.stop>
-                  <span class="label">S</span>
-                  <input :placeholder="t.status ? '' : 'status...'"
-                         :value="t.status"
-                         @change="setStatus(t, $event.target.value)"
-                         @keydown.enter="$event.target.blur()"
-                         title="Status — free text for navigation. Edit anytime.">
-                </div>
-                <div class="chat">
-                  <template x-for="c in t.messages || []" :key="c.id">
-                    <div class="msg">
-                      <div class="meta">
-                        <span class="who" :class="c.role" x-text="c.role"></span>
-                        <span x-show="c.name" x-text="'(' + c.name + ')'"></span>
-                        <span x-text="c.created_at"></span>
-                        <span class="extra" x-show="c.status_after" x-text="'→ status: ' + c.status_after"></span>
-                        <span class="extra" x-show="c.action" x-text="'→ ' + c.action"></span>
-                      </div>
-                      <div class="body" x-text="c.body"></div>
+                </template>
+              </div>
+              <div class="status-row" :class="{ 'has-value': t.status }" @click.stop>
+                <span class="label">S</span>
+                <input :placeholder="t.status ? '' : 'status...'"
+                       :value="t.status"
+                       @change="setStatus(t, $event.target.value)"
+                       @keydown.enter="$event.target.blur()"
+                       title="Status — free text for navigation. Edit anytime.">
+              </div>
+              <div class="chat" x-show="gridOpenIds[t.id]">
+                <template x-for="c in t.messages || []" :key="c.id">
+                  <div class="msg">
+                    <div class="meta">
+                      <span class="who" :class="c.role" x-text="c.role"></span>
+                      <span x-show="c.name" x-text="'(' + c.name + ')'"></span>
+                      <span x-text="c.created_at"></span>
+                      <span class="extra" x-show="c.status_after" x-text="'→ status: ' + c.status_after"></span>
+                      <span class="extra" x-show="c.action" x-text="'→ ' + c.action"></span>
                     </div>
-                  </template>
-                  <div class="reply">
-                    <input x-model="replyText" @keydown.enter="reply(t)" placeholder="Write back ... (Enter = comment)">
-                    <button @click="reply(t)">Comment</button>
-                    <button class="close" @click="closeTicket(t)" x-show="t.state !== 'done'">Close</button>
-                    <button class="reopen" @click="reopenTicket(t)" x-show="t.state === 'done'">Reopen</button>
+                    <div class="body" x-text="c.body"></div>
                   </div>
-                  <div class="ticket-actions">
-                    <button class="danger" @click="deleteTicket(t)">🗑 Delete</button>
-                  </div>
+                </template>
+                <div class="reply">
+                  <input x-model="replyText" @keydown.enter="reply(t)" placeholder="Write back ... (Enter = comment)">
+                  <button @click="reply(t)">Comment</button>
+                  <button class="close" @click="closeTicket(t)" x-show="t.state !== 'done'">Close</button>
+                  <button class="reopen" @click="reopenTicket(t)" x-show="t.state === 'done'">Reopen</button>
+                </div>
+                <div class="ticket-actions">
+                  <button class="danger" @click="deleteTicket(t)">🗑 Delete</button>
                 </div>
               </div>
             </div>
@@ -284,7 +269,7 @@ function rectApp() {
     counts: { active: 0, review: 0, done: 0 },
     cwd: '',
     openId: null,
-    expandedCardId: null,
+    gridOpenIds: {},
     newTitle: '',
     replyText: '',
     editTicketId: null,
@@ -304,16 +289,10 @@ function rectApp() {
       await this.load();
       this.ping();
       this._pingTimer = setInterval(() => this.ping(), 3000);
-      window.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && this.expandedCardId) {
-          this.closeCard();
-        }
-      });
     },
 
     setView(v) {
       this.view = v;
-      if (v === 'list') this.expandedCardId = null;
       localStorage.setItem('rect_view', v);
     },
 
@@ -377,7 +356,7 @@ function rectApp() {
       });
     },
 
-    switchTab(t) { this.tab = t; this.openId = null; this.expandedCardId = null; this.load(); },
+    switchTab(t) { this.tab = t; this.openId = null; this.gridOpenIds = {}; this.load(); },
 
     async load() {
       const params = new URLSearchParams();
@@ -411,14 +390,12 @@ function rectApp() {
       }
     },
 
-    async openFromCard(t) {
-      // grid mode: expand the card in place. Don't drop into list view.
-      if (this.expandedCardId === t.id) {
-        this.closeCard();
+    async toggleGridCard(t) {
+      if (this.gridOpenIds[t.id]) {
+        delete this.gridOpenIds[t.id];
         return;
       }
-      this.expandedCardId = t.id;
-      this.openId = t.id;
+      this.gridOpenIds[t.id] = true;
       if (!t.messages) {
         const r = await fetch('/api/tickets/' + t.no);
         const full = await r.json();
@@ -426,13 +403,7 @@ function rectApp() {
       }
     },
 
-    closeCard() {
-      this.expandedCardId = null;
-      this.openId = null;
-      this.replyText = '';
-    },
-
-    async reply(t) {
+        async reply(t) {
       const body = this.replyText.trim();
       if (!body) return;
       await fetch('/api/tickets/' + t.no + '/comments', {
