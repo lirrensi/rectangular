@@ -37,9 +37,12 @@
   .search input:focus { border-color: var(--accent); }
   .search .clear { background: transparent; border: none; color: var(--dim); cursor: pointer; font-size: 14px; padding: 4px; }
   .search .clear:hover { color: var(--text); }
-  .new-ticket { display: flex; gap: 8px; align-items: center; margin-bottom: 20px; }
-  .new-ticket input { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 10px 12px; width: 100%; }
-  .new-ticket button { background: var(--accent); border: none; color: white; padding: 10px 16px; cursor: pointer; font-weight: 600; }
+  .new-ticket { display: flex; align-items: stretch; border: 1px solid var(--border); margin-bottom: 20px; transition: border-color .15s; }
+  .new-ticket:focus-within { border-color: var(--accent); }
+  .new-ticket input { flex: 1; background: transparent; border: none; outline: none; color: var(--text); padding: 10px 12px; font: inherit; font-size: 14px; min-width: 0; }
+  .new-ticket input::placeholder { color: var(--dim); font-style: italic; }
+  .new-ticket button { background: var(--accent); border: none; color: var(--bg); padding: 0 16px; cursor: pointer; font-weight: 600; font-size: 18px; border-left: 1px solid var(--border); }
+  .new-ticket button:hover { filter: brightness(1.1); }
   .settings { display: flex; align-items: center; gap: 12px; margin-left: auto; }
   .name-input { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; width: 120px; font-size: 12px; }
   .name-input:focus { border-color: var(--accent); }
@@ -53,13 +56,29 @@
   main { max-width: 860px; margin: 0 auto; padding: 24px; }
   .day { margin-bottom: 28px; }
   .day h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin-bottom: 10px; }
-  .day.grid .day-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(125px, 1fr)); gap: 12px; align-items: start; }
-  .ticket-card { background: var(--panel); border: 1px solid var(--border); padding: 12px; cursor: pointer; min-height: 96px; display: flex; flex-direction: column; gap: 6px; transition: border-color .15s, background .15s; }
+  .day.grid .day-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; align-items: stretch; }
+  .ticket-card { background: var(--panel); border: 1px solid var(--border); padding: 12px; cursor: pointer; height: 120px; min-height: 120px; max-height: 120px; display: flex; flex-direction: column; gap: 6px; transition: border-color .15s, background .15s; overflow: hidden; }
   .ticket-card:hover { border-color: var(--accent); background: var(--panel2); }
   .ticket-card .card-top { display: flex; align-items: center; gap: 6px; }
   .ticket-card .card-title { font-weight: 600; font-size: 13px; line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
   .ticket-card .card-status { font-size: 12px; color: var(--amber); margin-top: auto; }
   .ticket-card .card-state { font-size: 11px; color: var(--dim); }
+  .ticket-card.expanded { grid-column: 1 / -1; height: auto; min-height: 0; max-height: 70vh; cursor: default; border-color: var(--accent); background: var(--panel2); padding: 16px; overflow-y: auto; }
+  .ticket-card.expanded:hover { background: var(--panel2); }
+  .card-expanded { display: flex; flex-direction: column; gap: 12px; }
+  .card-expanded-head { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .card-expanded-title { flex: 1; font-weight: 600; font-size: 15px; min-width: 200px; word-break: break-word; }
+  .card-close { background: transparent; border: 1px solid var(--border); color: var(--dim); padding: 6px 12px; cursor: pointer; font-size: 12px; font-weight: 600; margin-left: auto; }
+  .card-close:hover { border-color: #ef4444; color: #ef4444; }
+  .status-row { display: flex; align-items: stretch; border-top: 1px solid var(--border); transition: border-color .15s; }
+  .status-row:hover { border-color: var(--dim); }
+  .status-row:focus-within { border-color: var(--accent); }
+  .status-row.has-value { border-color: var(--accent); }
+  .status-row .label { display: flex; align-items: center; justify-content: center; width: 32px; background: var(--panel2); color: var(--accent); font-size: 12px; font-weight: 700; flex-shrink: 0; border-right: 1px solid var(--border); transition: background .15s, color .15s, border-color .15s; }
+  .status-row:focus-within .label { background: var(--accent); color: var(--bg); border-right-color: var(--accent); }
+  .status-row.has-value .label { background: var(--accent); color: var(--bg); border-right-color: var(--accent); }
+  .status-row input { flex: 1; background: transparent; border: none; padding: 8px 12px; font-size: 13px; color: var(--text); outline: none; font-family: inherit; min-width: 0; }
+  .status-row input::placeholder { color: var(--dim); font-style: italic; }
   .ticket { background: var(--panel); border: 1px solid var(--border); margin-bottom: 10px; overflow: hidden; }
   .ticket-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; cursor: pointer; }
   .ticket-head:hover { background: var(--panel2); }
@@ -84,15 +103,10 @@
   .ticket-actions button:hover { border-color: var(--accent); color: var(--text); }
   .ticket-actions .danger:hover { border-color: #ef4444; color: #ef4444; }
   .ticket-actions input { flex: 1; background: var(--panel2); border: 1px solid var(--border); color: var(--text); padding: 4px 10px; font-size: 12px; }
-  .title-input, .status-input { background: var(--panel2); border: 1px solid var(--accent); color: var(--text); padding: 2px 8px; font-size: inherit; }
-  .title-input { width: 100%; min-width: 240px; resize: vertical; max-height: 120px; }
+  .title-input { background: var(--panel2); border: 1px solid var(--accent); color: var(--text); padding: 2px 8px; font-size: inherit; width: 100%; min-width: 240px; resize: vertical; max-height: 120px; }
   .edit-confirm, .edit-cancel { background: transparent; border: 1px solid var(--border); color: var(--text); padding: 2px 8px; cursor: pointer; font-size: 12px; }
   .edit-confirm:hover { border-color: var(--green); color: var(--green); }
   .edit-cancel:hover { border-color: #ef4444; color: #ef4444; }
-  .status-field { display: flex; align-items: center; gap: 6px; }
-  .status-field input { background: var(--panel2); border: 1px solid var(--border); padding: 3px 10px; font-size: 12px; color: var(--dim); width: 140px; }
-  .status-field input:focus { border-color: var(--accent); color: var(--text); width: 200px; }
-  .status-field input:not(:placeholder-shown) { color: var(--text); }
   .empty { color: var(--dim); text-align: center; padding: 40px 0; }
 </style>
 </head>
@@ -147,14 +161,61 @@
         <div class="day-body">
         <template x-if="view === 'grid'">
           <template x-for="t in day.tickets" :key="t.id">
-            <div class="ticket-card" @click="openFromCard(t)" :title="t.title">
-              <div class="card-top">
-                <span class="id"><span class="review-dot" x-show="t.needs_review"></span><span x-text="t.no"></span></span>
-                <span class="claim" x-show="t.claimed_by" :title="'Claimed by ' + t.claimed_by" x-text="'🔒'"></span>
+            <div class="ticket-card" :class="{ expanded: expandedCardId === t.id }"
+                 @click="expandedCardId === t.id ? null : openFromCard(t)">
+              <!-- compact view -->
+              <div class="card-compact" x-show="expandedCardId !== t.id" :title="t.title">
+                <div class="card-top">
+                  <span class="id"><span class="review-dot" x-show="t.needs_review"></span><span x-text="t.no"></span></span>
+                  <span class="claim" x-show="t.claimed_by" :title="'Claimed by ' + t.claimed_by" x-text="'🔒'"></span>
+                </div>
+                <div class="card-title" x-text="t.title"></div>
+                <div class="card-status" x-show="t.status" x-text="t.status"></div>
+                <div class="card-state" x-text="t.state === 'done' ? '✓ done' : (t.needs_review ? '👁 review' : '')"></div>
               </div>
-              <div class="card-title" x-text="t.title"></div>
-              <div class="card-status" x-show="t.status" x-text="t.status"></div>
-              <div class="card-state" x-text="t.state === 'done' ? '✓ done' : (t.needs_review ? '👁 review' : '')"></div>
+              <!-- expanded view -->
+              <div class="card-expanded" x-show="expandedCardId === t.id">
+                <div class="card-expanded-head">
+                  <span class="id">
+                    <span class="review-dot" x-show="t.needs_review"></span>
+                    <span x-text="t.no"></span>
+                  </span>
+                  <span class="claim" x-show="t.claimed_by" :title="'Claimed by ' + t.claimed_by" x-text="'🔒'"></span>
+                  <span class="card-expanded-title" x-text="t.title"></span>
+                  <button class="card-close" @click="closeCard()" title="Close (Esc)">✕ Close</button>
+                </div>
+                <div class="status-row" :class="{ 'has-value': t.status }" @click.stop>
+                  <span class="label">S</span>
+                  <input :placeholder="t.status ? '' : 'status...'"
+                         :value="t.status"
+                         @change="setStatus(t, $event.target.value)"
+                         @keydown.enter="$event.target.blur()"
+                         title="Status — free text for navigation. Edit anytime.">
+                </div>
+                <div class="chat">
+                  <template x-for="c in t.messages || []" :key="c.id">
+                    <div class="msg">
+                      <div class="meta">
+                        <span class="who" :class="c.role" x-text="c.role"></span>
+                        <span x-show="c.name" x-text="'(' + c.name + ')'"></span>
+                        <span x-text="c.created_at"></span>
+                        <span class="extra" x-show="c.status_after" x-text="'→ status: ' + c.status_after"></span>
+                        <span class="extra" x-show="c.action" x-text="'→ ' + c.action"></span>
+                      </div>
+                      <div class="body" x-text="c.body"></div>
+                    </div>
+                  </template>
+                  <div class="reply">
+                    <input x-model="replyText" @keydown.enter="reply(t)" placeholder="Write back ... (Enter = comment)">
+                    <button @click="reply(t)">Comment</button>
+                    <button class="close" @click="closeTicket(t)" x-show="t.state !== 'done'">Close</button>
+                    <button class="reopen" @click="reopenTicket(t)" x-show="t.state === 'done'">Reopen</button>
+                  </div>
+                  <div class="ticket-actions">
+                    <button class="danger" @click="deleteTicket(t)">🗑 Delete</button>
+                  </div>
+                </div>
+              </div>
             </div>
           </template>
         </template>
@@ -172,12 +233,14 @@
                   <button class="edit-cancel" @click.stop="cancelEdit()">✕</button>
                 </span>
               </template>
-              <span class="status-field" @click.stop>
-                <input :placeholder="t.status ? '' : 'type status here'" :value="t.status"
-                       @change="setStatus(t, $event.target.value)"
-                       @keydown.enter="$event.target.blur()"
-                       title="Status — free text for navigation. Edit anytime.">
-              </span>
+            </div>
+            <div class="status-row" :class="{ 'has-value': t.status }" @click.stop>
+              <span class="label">S</span>
+              <input :placeholder="t.status ? '' : 'status...'"
+                     :value="t.status"
+                     @change="setStatus(t, $event.target.value)"
+                     @keydown.enter="$event.target.blur()"
+                     title="Status — free text for navigation. Edit anytime.">
             </div>
             <div class="chat" x-show="openId === t.id">
               <template x-for="c in t.messages" :key="c.id">
@@ -221,6 +284,7 @@ function rectApp() {
     counts: { active: 0, review: 0, done: 0 },
     cwd: '',
     openId: null,
+    expandedCardId: null,
     newTitle: '',
     replyText: '',
     editTicketId: null,
@@ -240,10 +304,16 @@ function rectApp() {
       await this.load();
       this.ping();
       this._pingTimer = setInterval(() => this.ping(), 3000);
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && this.expandedCardId) {
+          this.closeCard();
+        }
+      });
     },
 
     setView(v) {
       this.view = v;
+      if (v === 'list') this.expandedCardId = null;
       localStorage.setItem('rect_view', v);
     },
 
@@ -307,7 +377,7 @@ function rectApp() {
       });
     },
 
-    switchTab(t) { this.tab = t; this.openId = null; this.load(); },
+    switchTab(t) { this.tab = t; this.openId = null; this.expandedCardId = null; this.load(); },
 
     async load() {
       const params = new URLSearchParams();
@@ -342,10 +412,24 @@ function rectApp() {
     },
 
     async openFromCard(t) {
-      // cards = overview. Clicking one drops you into list view, ticket open.
-      this.setView('list');
-      await this.open(t);
-      this.load();
+      // grid mode: expand the card in place. Don't drop into list view.
+      if (this.expandedCardId === t.id) {
+        this.closeCard();
+        return;
+      }
+      this.expandedCardId = t.id;
+      this.openId = t.id;
+      if (!t.messages) {
+        const r = await fetch('/api/tickets/' + t.no);
+        const full = await r.json();
+        t.messages = full.messages;
+      }
+    },
+
+    closeCard() {
+      this.expandedCardId = null;
+      this.openId = null;
+      this.replyText = '';
     },
 
     async reply(t) {
