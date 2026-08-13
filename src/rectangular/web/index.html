@@ -22,6 +22,10 @@
   header { display: flex; align-items: center; gap: 16px; padding: 16px 24px; border-bottom: 1px solid var(--border); }
   header h1 { font-size: 18px; font-weight: 700; }
   header .cwd { font-size: 12px; color: var(--dim); font-family: ui-monospace, monospace; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conn { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .conn .dot { width: 10px; height: 10px; background: var(--green); transition: background .3s; }
+  .conn .dot.dead { background: #ef4444; }
+  .conn .label { color: var(--dim); }
   .tabs { display: flex; gap: 6px; background: var(--panel); padding: 4px; }
   .tab { border: none; background: transparent; color: var(--dim); padding: 8px 16px; cursor: pointer; font-size: 14px; font-weight: 600; }
   .tab.active { background: var(--panel2); color: var(--text); }
@@ -86,6 +90,10 @@
   <header>
     <h1>📐 Rectangular</h1>
     <span class="cwd" :title="cwd" x-text="cwd"></span>
+    <span class="conn" :title="connected ? 'Server is alive — last ping ' + lastSeen : 'Server is not responding — last seen ' + lastSeen">
+      <span class="dot" :class="connected ? '' : 'dead'"></span>
+      <span class="label" x-text="connected ? 'connected' : 'offline'"></span>
+    </span>
     <div class="tabs">
       <button class="tab" :class="{'active': tab === 'active'}" @click="switchTab('active')">
         Active <span x-text="counts.active"></span>
@@ -188,11 +196,33 @@ function rectApp() {
     query: '',
     userName: localStorage.getItem('rect_name') || '',
     theme: localStorage.getItem('rect_theme') || 'dark',
+    connected: true,
+    lastSeen: 'never',
+    _pingTimer: null,
 
     async init() {
       this.applyTheme();
       await this.loadSettings();
       await this.load();
+      this.ping();
+      this._pingTimer = setInterval(() => this.ping(), 3000);
+    },
+
+    async ping() {
+      try {
+        const r = await fetch('/api/status', { signal: AbortSignal.timeout(2500) });
+        if (r.ok) {
+          this.connected = true;
+          this.lastSeen = new Date().toLocaleTimeString();
+        } else {
+          this.connected = false;
+        }
+      } catch {
+        this.connected = false;
+      }
+      document.title = this.connected
+        ? '📐 Rectangular — connected'
+        : '📐 Rectangular — OFFLINE';
     },
 
     applyTheme() {
