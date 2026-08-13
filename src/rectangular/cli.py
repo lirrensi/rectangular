@@ -15,6 +15,7 @@ import os
 import socket
 import sys
 import webbrowser
+from datetime import datetime
 from typing import Any
 
 import click
@@ -224,6 +225,70 @@ def read_cmd(ref: str, json_output: bool) -> None:
         click.echo(json.dumps(t, indent=2, default=str))
         return
     _render_thread(t)
+
+
+def _render_updates(res: dict[str, Any], marked: bool) -> None:
+    since = res["since"]
+    if since:
+        console.print(f"[bold]UPDATES since {_fmt_time(since)}[/bold]")
+    else:
+        console.print("[bold]UPDATES — first check, everything so far[/bold]")
+    for t in res["tickets"]:
+        badge = " NEW" if t["is_new"] else ""
+        review = " 👁" if t["needs_review"] else ""
+        state = "done" if t["state"] == core.STATE_DONE else "active"
+        console.print(
+            f"  [{t['no']}]{badge} {t['title']}  ({state} · {t['status'] or '-'}){review}"
+        )
+        for m in t["messages"]:
+            who = _role_style(m["role"])
+            sender = f" ({m['name']})" if m.get("name") else ""
+            extra = ""
+            if m["status_after"]:
+                extra += f" → status: {m['status_after']}"
+            if m["action"]:
+                extra += f" → {m['action']}"
+            console.print(f"      {who}{sender} {_fmt_time(m['created_at'])}:{extra}")
+            console.print(f"        {m['body']}")
+    if not res["tickets"]:
+        console.print("  (no new updates)")
+    if marked:
+        console.print(f"\nCursor → {_fmt_time(res['now'])}")
+    else:
+        console.print("\n(cursor not moved)")
+
+
+@main.command()
+@click.option("--since", help="Show activity after this ISO time (default: last check)")
+@click.option("--no-mark", is_flag=True, help="Don't advance the last-checked cursor")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+def updates(since: str | None, no_mark: bool, json_output: bool) -> None:
+    """Incremental radar: what changed on the tickets since the last call.
+
+    The first call shows everything so far, then stores a cursor
+    (.rect/updates.json) so every later call only shows what's new.
+    Perfect for polling from a terminal or an orchestrator script.
+    """
+    if since is not None:
+        try:
+            datetime.fromisoformat(since)
+        except ValueError:
+            console.print(
+                f"Bad --since time: {since!r} (use ISO like 2026-08-13T12:00:00)",
+                style="red",
+            )
+            sys.exit(1)
+    try:
+        res = core.list_updates(since=since)
+    except ValueError as e:
+        console.print(str(e), style="red")
+        sys.exit(1)
+    if since is None and not no_mark:
+        core.save_updates_cursor(res["now"])
+    if json_output:
+        click.echo(json.dumps(res, indent=2, default=str))
+        return
+    _render_updates(res, marked=since is None and not no_mark)
 
 
 @main.command("search")

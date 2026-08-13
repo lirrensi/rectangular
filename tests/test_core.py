@@ -10,6 +10,9 @@ message being from a worker.
 
 from __future__ import annotations
 
+import json
+from datetime import datetime, timedelta
+
 import pytest
 
 from rectangular import core, db
@@ -18,6 +21,19 @@ from rectangular import core, db
 @pytest.fixture(autouse=True)
 def _isolated(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """Deterministic, ever-increasing _now() so cursor comparisons never tie."""
+    t = [datetime(2026, 1, 1, 12, 0, 0, 0)]
+
+    def tick():
+        t[0] = t[0] + timedelta(milliseconds=1)
+        return t[0].isoformat(timespec="microseconds")
+
+    monkeypatch.setattr(core, "_now", tick)
+    return t
 
 
 # ---------------------------------------------------------------------------
@@ -465,6 +481,127 @@ def test_search_returns_rich_ticket_shape():
     assert hit["state"] == "active"
     assert hit["title"] == "shape check"
     assert hit["needs_review"] is True  # last message from a worker
+
+
+# ---------------------------------------------------------------------------
+# Updates — incremental "since last check" radar
+# ---------------------------------------------------------------------------
+
+
+def test_updates_first_run_shows_everything(clock):
+    core.add_ticket("one")
+    core.message(1, core.ROLE_ASSISTANT, "report")
+    core.add_ticket("two")
+    res = core.list_updates()
+    assert res["count"] == 2
+    assert [t["no"] for t in res["tickets"]] == ["T-0001", "T-0002"]
+    assert all(t["is_new"] for t in res["tickets"])
+    assert res["since"] is None
+
+
+def test_updates_second_run_only_new_stuff(clock):
+    core.add_ticket("one")
+    core.message(1, core.ROLE_ASSISTANT, "report")
+    res = core.list_updates()
+    core.save_updates_cursor(res["now"])
+    assert core.list_updates()["count"] == 0
+    # new activity lands on the radar
+    core.message(1, core.ROLE_USER, "fix it")
+    res2 = core.list_updates()
+    assert res2["count"] == 1
+    t = res2["tickets"][0]
+    assert [m["body"] for m in t["messages"]] == ["fix it"]
+    assert t["is_new"] is False  # the ticket itself is old
+
+
+def test_updates_cursor_file_is_just_a_time(clock):
+    core.add_ticket("one")
+    res = core.list_updates()
+    core.save_updates_cursor(res["now"])
+    p = db.rect_dir() / "updates.json"
+    assert p.exists()
+    data = json.loads(p.read_text(encoding="utf-8"))
+    assert set(data) == {"last_checked"}
+
+
+def test_updates_explicit_since_ignores_cursor(clock):
+    core.add_ticket("one")
+    res = core.list_updates()
+    core.save_updates_cursor(res["now"])
+    core.message(1, core.ROLE_USER, "fresh comment")
+    res2 = core.list_updates(since="1970-01-01T00:00:00")
+    assert res2["count"] == 1
+    assert res2["tickets"][0]["is_new"] is True
+
+
+def test_updates_filters_messages_to_since(clock):
+    core.add_ticket("one")
+    core.message(1, core.ROLE_USER, "old words")
+    res = core.list_updates()
+    core.save_updates_cursor(res["now"])
+    core.message(1, core.ROLE_SYSTEM, "new words", status="in-progress")
+    res2 = core.list_updates()
+    t = res2["tickets"][0]
+    assert [m["body"] for m in t["messages"]] == ["new words"]
+    assert t["status"] == "in-progress"  # ticket shape stays rich
+
+
+def test_updates_sees_status_change_without_message_body(clock):
+    core.add_ticket("one")
+    res = core.list_updates()
+    core.save_updates_cursor(res["now"])
+    core.message(1, core.ROLE_SYSTEM, "status → blocked", status="blocked")
+    res2 = core.list_updates()
+    assert res2["count"] == 1
+    assert res2["tickets"][0]["status"] == "blocked"
+
+
+def test_updates_sees_title_edit_via_updated_at(clock):
+    core.add_ticket("old title")
+    res = core.list_updates()
+    core.save_updates_cursor(res["now"])
+    core.update_ticket(1, title="new title", role="user")
+    res2 = core.list_updates()
+    assert res2["count"] == 1
+    assert res2["tickets"][0]["title"] == "new title"
+    assert res2["tickets"][0]["is_new"] is False
+
+
+def test_updates_sees_close_and_reopen(clock):
+    core.add_ticket("one")
+    res = core.list_updates()
+    core.save_updates_cursor(res["now"])
+    core.close(1, role="user")
+    res2 = core.list_updates()
+    assert res2["count"] == 1
+    assert res2["tickets"][0]["state"] == "done"
+    assert res2["tickets"][0]["messages"][-1]["action"] == core.ACTION_CLOSE
+    core.save_updates_cursor(res2["now"])
+    core.reopen(1, role="user")
+    res3 = core.list_updates()
+    assert res3["tickets"][0]["state"] == "active"
+    assert res3["tickets"][0]["messages"][-1]["action"] == core.ACTION_REOPEN
+
+
+def test_updates_marks_new_ticket_created_since_cursor(clock):
+    core.add_ticket("old")
+    res = core.list_updates()
+    core.save_updates_cursor(res["now"])
+    core.add_ticket("brand new")
+    res2 = core.list_updates()
+    assert [t["no"] for t in res2["tickets"]] == ["T-0002"]
+    assert res2["tickets"][0]["is_new"] is True
+
+
+def test_updates_ignores_untouched_tickets(clock):
+    core.add_ticket("a")
+    core.add_ticket("b")
+    res = core.list_updates()
+    core.save_updates_cursor(res["now"])
+    core.message(2, core.ROLE_ASSISTANT, "b changed")
+    res2 = core.list_updates()
+    assert [t["no"] for t in res2["tickets"]] == ["T-0002"]
+    assert res2["tickets"][0]["needs_review"] is True
 
 
 # ---------------------------------------------------------------------------

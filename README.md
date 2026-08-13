@@ -88,8 +88,13 @@ rect comment T-0001 "text" --as user
 rect close T-0001                # state → done (user only)
 rect reopen T-0001               # state → active (user only)
 rect edit T-0001 --status X      # free-string status, anyone
+rect updates                     # what changed since the last call (first call = everything so far)
+rect updates --no-mark           # peek without advancing the cursor
+rect updates --since ISO         # one-off look since a time, cursor untouched
 rect full-access on|off          # let agents do destructive things
 ```
+
+`rect updates` keeps a tiny cursor (`.rect/updates.json` — just a timestamp) and only reports activity that happened *after* your last check, then advances it. Poll it constantly from a terminal or a script: every call shows exactly what's new. `--json` for machine-readable output.
 
 An active ticket whose last message is from a worker = **needs your eyes** — it floats to the top of the list with a 👁 dot. That's the whole review system.
 

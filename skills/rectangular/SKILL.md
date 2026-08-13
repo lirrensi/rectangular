@@ -34,6 +34,10 @@ rect full-access on|off          # enables agents to close/reopen/delete
 rect search "fuzzy term"         # full-text search across titles + comments
                                  # (active AND done). Fuzzy: 'quic' finds 'quick'.
                                  # Include a ticket ref (T-XXXX) if you know it.
+rect updates                     # what changed since the LAST call (first call = everything so far).
+                                 # Stores a cursor in .rect/updates.json; each call only shows newer
+                                 # activity, then advances. Great for polling while you work.
+                                 # --no-mark peeks without advancing; --since ISO overrides; --json.
 rect claim T-0001 --as assistant --name "your-name"
                                  # SOFT LOCK: you're working on it. Others see 🔒.
                                  # Only one claimant at a time.

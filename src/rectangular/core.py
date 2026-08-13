@@ -16,8 +16,9 @@ by default; workers need Full Access Mode.
 
 from __future__ import annotations
 
+import json
 import sqlite3
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Any
 
 from . import db
@@ -51,7 +52,9 @@ def parse_ticket_no(ref: str) -> int:
 
 
 def _now() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+    # Microsecond precision so an "updates since" cursor can never skip a
+    # change that lands in the same wall-clock second as the last check.
+    return datetime.now().isoformat(timespec="microseconds")
 
 
 def _today() -> str:
@@ -466,6 +469,86 @@ def update_ticket(
 
         conn.commit()
         return get_ticket(ticket_id, conn=conn)
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Updates — "what changed since I last checked" (incremental radar)
+# ---------------------------------------------------------------------------
+
+UPDATES_STATE_FILE = "updates.json"
+
+
+def updates_cursor() -> str | None:
+    """Stored last-checked time (from the last `rect updates` call), or None.
+
+    The whole cursor is a single ISO timestamp in .rect/updates.json. No
+    cursor = first run = everything so far counts as new.
+    """
+    p = db.rect_dir() / UPDATES_STATE_FILE
+    if not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        since = data.get("last_checked")
+    except (OSError, ValueError):
+        return None
+    return since if isinstance(since, str) and since else None
+
+
+def save_updates_cursor(ts: str) -> None:
+    """Persist the last-checked cursor so the next call is incremental."""
+    (db.ensure_rect_dir() / UPDATES_STATE_FILE).write_text(
+        json.dumps({"last_checked": ts}), encoding="utf-8"
+    )
+
+
+def list_updates(since: str | None = None) -> dict[str, Any]:
+    """Ticket activity after `since` (default: the stored cursor).
+
+    Returns every ticket touched since the cursor — created, messaged,
+    status/state flipped, claimed, renamed — with `messages` filtered to only
+    the NEW ones and an `is_new` flag on the ticket. First run (no cursor)
+    reports everything from the beginning.
+
+    The returned `now` is a safe cursor: strictly after the newest thing we
+    just reported, so the next call can't re-show or skip anything.
+    """
+    if since is None:
+        since = updates_cursor()
+    conn = db.connect()
+    try:
+        if since is None:
+            rows = conn.execute("SELECT * FROM tickets ORDER BY id ASC").fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM tickets WHERE created_at > ? OR updated_at > ? "
+                "OR id IN (SELECT DISTINCT ticket_id FROM messages WHERE created_at > ?) "
+                "ORDER BY id ASC",
+                (since, since, since),
+            ).fetchall()
+        tickets = []
+        for r in rows:
+            t = _ticket_row(r)
+            t["messages"] = _messages(conn, r["id"])
+            if since is not None:
+                t["messages"] = [m for m in t["messages"] if m["created_at"] > since]
+            t["needs_review"] = _needs_review(t["messages"])
+            t["is_new"] = since is None or t["created_at"] > since
+            tickets.append(t)
+        now = _now()
+        newest = max((t["created_at"] for t in tickets), default="")
+        if newest and now <= newest:
+            now = (datetime.fromisoformat(newest) + timedelta(microseconds=1)).isoformat(
+                timespec="microseconds"
+            )
+        return {
+            "since": since,
+            "now": now,
+            "count": len(tickets),
+            "tickets": tickets,
+        }
     finally:
         conn.close()
 

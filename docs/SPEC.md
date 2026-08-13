@@ -112,6 +112,12 @@ rect close T-0001                # state → done, removes from eyes (user only;
 rect reopen T-0001               # state → active (user only; workers need full-access)
 rect delete T-0001 [--as assistant]  # destructive — workers need `rect full-access on`
 rect edit T-0001 --title Y --status Z [--as assistant]  # title is destructive; status is free for anyone
+rect updates [--since ISO] [--no-mark] [--json]
+                                 # incremental radar: ticket activity since the last call.
+                                 # Cursor = .rect/updates.json (a single ISO timestamp, machine-local,
+                                 # gitignored). First call reports everything so far, then advances.
+                                 # --since overrides the cursor for one look; --no-mark peeks without
+                                 # advancing; --json for orchestrator scripts.
 rect full-access on|off          # toggle Level 2
 ```
 
