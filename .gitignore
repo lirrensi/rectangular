@@ -22,3 +22,4 @@ private/
 .rect/*.db-wal
 .rect/*.db-shm
 .rect/ui.json
+.playwright-cli
