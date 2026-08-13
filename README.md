@@ -6,7 +6,7 @@ A ticket is a chat between you and your workers (agents). You read, you reply, y
 
 - Mom I want Linear
 - We have Linear at home
-- [basically this]
+- rEcTaNgUlAr lol
 
 ---
 
