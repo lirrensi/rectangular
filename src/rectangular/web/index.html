@@ -50,6 +50,7 @@
   .ticket-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; cursor: pointer; }
   .ticket-head:hover { background: var(--panel2); }
   .id { color: var(--accent); font-weight: 700; font-size: 13px; min-width: 58px; }
+  .claim { font-size: 13px; cursor: default; }
   .title { flex: 1; font-weight: 600; }
   .chat { border-top: 1px solid var(--border); padding: 12px 16px; }
   .msg { margin-bottom: 12px; }
@@ -124,6 +125,7 @@
           <div class="ticket">
             <div class="ticket-head" @click="open(t)">
               <span class="id"><span class="review-dot" x-show="t.needs_review"></span><span x-text="t.no"></span></span>
+              <span class="claim" x-show="t.claimed_by" :title="'Claimed by ' + t.claimed_by + ' (soft lock)'" x-text="'🔒'"></span>
               <span class="title" @dblclick.stop="startEditTitle(t)" x-show="editTicketId !== t.id" x-text="t.title"></span>
               <template x-if="editTicketId === t.id">
                 <span class="title" style="flex: 2; display: flex; align-items: center; gap: 6px;">

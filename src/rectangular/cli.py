@@ -135,8 +135,9 @@ def _render_peek(tickets: list[dict[str, Any]]) -> None:
         return
     for t in tickets:
         review = " 👁" if t["needs_review"] else ""
+        claim = f" 🔒{t['claimed_by']}" if t.get("claimed_by") else ""
         console.print(
-            f"  [{t['no']}] {t['status'] or '-':<12} {t['title']}{review}"
+            f"  [{t['no']}] {t['status'] or '-':<12} {t['title']}{claim}{review}"
         )
 
 
@@ -146,7 +147,8 @@ def _render_day_group(tickets: list[dict[str, Any]]) -> None:
         console.print(f"\n[bold]{g['label']}[/bold]")
         for t in g["tickets"]:
             review = " 👁" if t["needs_review"] else ""
-            console.print(f"  [{t['no']}] {t['status'] or '-':<12} {t['title']}{review}")
+            claim = f" 🔒{t['claimed_by']}" if t.get("claimed_by") else ""
+            console.print(f"  [{t['no']}] {t['status'] or '-':<12} {t['title']}{claim}{review}")
 
 
 def _role_style(role: str) -> str:
@@ -158,9 +160,12 @@ def _role_style(role: str) -> str:
 
 
 def _render_thread(t: dict[str, Any]) -> None:
+    claim = f"  claimed_by: {t['claimed_by']} (since {_fmt_time(t['claimed_at'])})" if t.get("claimed_by") else ""
     console.print(f"\n[bold]{t['no']}[/bold] — {t['title']}")
     console.print(f"  state: {t['state']}  status: {t['status'] or '-'}  "
                   f"needs_review: {'yes' if t['needs_review'] else 'no'}")
+    if claim:
+        console.print(claim)
     console.print("  ---")
     for m in t["messages"]:
         who = _role_style(m["role"])
@@ -370,3 +375,31 @@ def edit(ref: str, title: str | None, status: str | None, role: str) -> None:
         console.print(str(e), style="red")
         sys.exit(1)
     console.print(f"Updated {t['no']}: {t['title']}")
+
+
+@main.command()
+@click.argument("ref")
+@_role_option
+@_name_option
+def claim(ref: str, role: str, name: str | None) -> None:
+    """Claim a ticket — soft lock saying you're working on it."""
+    try:
+        t = core.claim(core.parse_ticket_no(ref), role=role, name=name)
+    except (KeyError, ValueError, PermissionError) as e:
+        console.print(str(e), style="red")
+        sys.exit(1)
+    console.print(f"🔒 Claimed {t['no']} by {t['claimed_by']}")
+
+
+@main.command()
+@click.argument("ref")
+@_role_option
+@_name_option
+def unclaim(ref: str, role: str, name: str | None) -> None:
+    """Release a claim. Claimant or user; workers need the right name."""
+    try:
+        t = core.unclaim(core.parse_ticket_no(ref), role=role, name=name)
+    except (KeyError, ValueError, PermissionError) as e:
+        console.print(str(e), style="red")
+        sys.exit(1)
+    console.print(f"🔓 Released {t['no']}")

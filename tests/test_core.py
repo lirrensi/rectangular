@@ -311,6 +311,79 @@ def test_delete_message_permissions():
 
 
 # ---------------------------------------------------------------------------
+# Claims — soft lock: "I'm on this, don't grab it."
+# ---------------------------------------------------------------------------
+
+
+def test_claim_sets_claimant_and_audits():
+    core.add_ticket("one")
+    t = core.claim(1, role="assistant", name="arri")
+    assert t["claimed_by"] == "arri"
+    assert t["claimed_at"] is not None
+    assert t["messages"][-1]["action"] == core.ACTION_CLAIM
+    assert "arri" in t["messages"][-1]["body"]
+
+
+def test_claim_requires_distinct_claimant():
+    core.add_ticket("one")
+    core.claim(1, role="assistant", name="arri")
+    with pytest.raises(PermissionError):
+        core.claim(1, role="assistant", name="other")
+
+
+def test_claim_same_claimant_is_idempotent():
+    core.add_ticket("one")
+    core.claim(1, role="assistant", name="arri")
+    t = core.claim(1, role="assistant", name="arri")  # same name → allowed
+    assert t["claimed_by"] == "arri"
+
+
+def test_unclaim_by_claimant():
+    core.add_ticket("one")
+    core.claim(1, role="assistant", name="arri")
+    t = core.unclaim(1, role="assistant", name="arri")
+    assert t["claimed_by"] is None
+    assert t["messages"][-1]["action"] == core.ACTION_UNCLAIM
+
+
+def test_unclaim_by_user_force_release():
+    core.add_ticket("one")
+    core.claim(1, role="assistant", name="arri")
+    t = core.unclaim(1, role="user")  # user can always force-release
+    assert t["claimed_by"] is None
+
+
+def test_unclaim_by_other_worker_denied():
+    core.add_ticket("one")
+    core.claim(1, role="assistant", name="arri")
+    with pytest.raises(PermissionError):
+        core.unclaim(1, role="assistant", name="intruder")
+
+
+def test_unclaim_when_not_claimed_is_noop():
+    core.add_ticket("one")
+    t = core.unclaim(1, role="user")
+    assert t["claimed_by"] is None
+
+
+def test_close_auto_releases_claim():
+    core.add_ticket("one")
+    core.claim(1, role="assistant", name="arri")
+    t = core.close(1, role="user")
+    assert t["state"] == "done"
+    assert t["claimed_by"] is None
+
+
+def test_claim_is_soft_lock_comments_still_flow():
+    core.add_ticket("one")
+    core.claim(1, role="assistant", name="arri")
+    # soft lock: another worker may still comment (signal, not a wall)
+    core.message(1, role="assistant", name="other", body="just poking")
+    msgs = core.get_ticket(1)["messages"]
+    assert msgs[-1]["name"] == "other"
+
+
+# ---------------------------------------------------------------------------
 # Search: FTS5 trigram, born in the schema (no migration ladder — baby app).
 # ---------------------------------------------------------------------------
 

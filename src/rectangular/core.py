@@ -281,10 +281,18 @@ def _flip_state(
         if row is None:
             raise KeyError(f"Ticket not found: {ticket_no(ticket_id)}")
         _insert_message(conn, ticket_id, role, body, action=action, name=name)
-        conn.execute(
-            "UPDATE tickets SET state = ?, updated_at = ? WHERE id = ?",
-            (new_state, _now(), ticket_id),
-        )
+        # Closing = nobody's problem anymore → auto-release any claim.
+        if new_state == STATE_DONE:
+            conn.execute(
+                "UPDATE tickets SET state = ?, claimed_by = NULL, claimed_at = NULL, "
+                "updated_at = ? WHERE id = ?",
+                (new_state, _now(), ticket_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE tickets SET state = ?, updated_at = ? WHERE id = ?",
+                (new_state, _now(), ticket_id),
+            )
         conn.commit()
         return get_ticket(ticket_id, conn=conn)
     finally:
@@ -309,6 +317,75 @@ def reopen(
 ) -> dict[str, Any]:
     """Reopen a done ticket → Active."""
     return _flip_state(ticket_id, role, STATE_ACTIVE, ACTION_REOPEN, body, name=name)
+
+
+# ---------------------------------------------------------------------------
+# Claims — a soft lock. "I'm on this, don't grab it."
+# ---------------------------------------------------------------------------
+
+ACTION_CLAIM = "claim"
+ACTION_UNCLAIM = "unclaim"
+
+
+def claim(ticket_id: int, role: str = ROLE_USER, name: str | None = None) -> dict[str, Any]:
+    """Claim a ticket: soft lock saying who's working on it.
+
+    One claim at a time. Soft lock — nobody is blocked from commenting; the
+    claim is a visible signal so other workers don't grab the same ticket.
+    Closing a ticket auto-releases the claim.
+    """
+    if name is None:
+        name = role
+    conn = db.connect()
+    try:
+        row = conn.execute("SELECT * FROM tickets WHERE id = ?", (ticket_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"Ticket not found: {ticket_no(ticket_id)}")
+        if row["claimed_by"] is not None and row["claimed_by"] != name:
+            raise PermissionError(
+                f"Ticket {ticket_no(ticket_id)} is already claimed by {row['claimed_by']}."
+            )
+        _insert_message(conn, ticket_id, role, f"🔒 claimed by {name}", action=ACTION_CLAIM, name=name)
+        conn.execute(
+            "UPDATE tickets SET claimed_by = ?, claimed_at = ?, updated_at = ? WHERE id = ?",
+            (name, _now(), _now(), ticket_id),
+        )
+        conn.commit()
+        return get_ticket(ticket_id, conn=conn)
+    finally:
+        conn.close()
+
+
+def unclaim(ticket_id: int, role: str = ROLE_USER, name: str | None = None) -> dict[str, Any]:
+    """Release the claim. Claimant or the user may release.
+
+    Soft lock — this just clears the flag and logs it. The user can always
+    force-release (worker went silent mid-task).
+    """
+    if name is None:
+        name = role
+    conn = db.connect()
+    try:
+        row = conn.execute("SELECT * FROM tickets WHERE id = ?", (ticket_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"Ticket not found: {ticket_no(ticket_id)}")
+        if row["claimed_by"] is None:
+            return get_ticket(ticket_id, conn=conn)  # nothing to release
+        # Soft lock: claimant OR user may release. Anyone else gets a warning.
+        if role != ROLE_USER and row["claimed_by"] != name:
+            raise PermissionError(
+                f"Ticket {ticket_no(ticket_id)} is claimed by {row['claimed_by']}, "
+                f"not {name}. Only the claimant or the user can release it."
+            )
+        _insert_message(conn, ticket_id, role, f"🔓 released by {name}", action=ACTION_UNCLAIM, name=name)
+        conn.execute(
+            "UPDATE tickets SET claimed_by = NULL, claimed_at = NULL, updated_at = ? WHERE id = ?",
+            (_now(), ticket_id),
+        )
+        conn.commit()
+        return get_ticket(ticket_id, conn=conn)
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------

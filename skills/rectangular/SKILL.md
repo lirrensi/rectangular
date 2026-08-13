@@ -34,6 +34,12 @@ rect full-access on|off          # enables agents to close/reopen/delete
 rect search "fuzzy term"         # full-text search across titles + comments
                                  # (active AND done). Fuzzy: 'quic' finds 'quick'.
                                  # Include a ticket ref (T-XXXX) if you know it.
+rect claim T-0001 --as assistant --name "your-name"
+                                 # SOFT LOCK: you're working on it. Others see 🔒.
+                                 # Only one claimant at a time.
+rect unclaim T-0001 --as assistant --name "your-name"
+                                 # Release the claim. Claimant or the user can.
+                                 # Closing a ticket auto-releases.
 ```
 
 ## The one rule that matters
@@ -42,6 +48,11 @@ rect search "fuzzy term"         # full-text search across titles + comments
 - **State flips (close/reopen) and destructive ops (delete) are user-only**
   unless Full Access Mode is on (`rect full-access on`). If you need to move a
   ticket and you lack permission, say so instead of failing silently.
+- **Claims are a soft lock.** If you start working a ticket, claim it
+  (`rect claim T-XXXX --as assistant --name "<you>"`) so other workers see 🔒.
+  Release with `rect unclaim` when done — or just let the user close it, which
+  auto-releases. Claiming is etiquette, not a wall: nobody is blocked from
+  commenting, but don't be rude and grab a claimed ticket.
 
 ## Typical worker loop
 

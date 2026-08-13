@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS tickets (
     status     TEXT NOT NULL DEFAULT '',
     state      TEXT NOT NULL DEFAULT 'active',   -- 'active' | 'done'
     created_by TEXT NOT NULL DEFAULT 'user',
+    claimed_by TEXT,                             -- who's working on it (soft lock)
+    claimed_at TEXT,                             -- when the claim happened
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -147,18 +149,34 @@ def ensure_rect_dir() -> Path:
 SCHEMA_VERSION = 4
 
 
+def _ensure_columns(conn: sqlite3.Connection) -> None:
+    """Idempotently add columns introduced after a DB was first created.
+
+    Born-schema philosophy, no migration ladder: CREATE IF NOT EXISTS handles
+    fresh DBs; this one-liner brings older DBs up to the same shape.
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(tickets)").fetchall()}
+    if "claimed_by" not in cols:
+        conn.execute("ALTER TABLE tickets ADD COLUMN claimed_by TEXT")
+    if "claimed_at" not in cols:
+        conn.execute("ALTER TABLE tickets ADD COLUMN claimed_at TEXT")
+    if "claimed_by" in cols or "claimed_at" in cols:
+        conn.commit()
+
+
 def connect() -> sqlite3.Connection:
     """Open a connection, creating .rect/ and the schema on first use.
 
     The schema is born-complete (idempotent CREATE IF NOT EXISTS + FTS5
-    triggers), so no migration ladder is needed. The only "migration" is a
-    one-time FTS backfill for DBs created before search existed.
+    triggers), so no migration ladder is needed. Older DBs are brought up to
+    shape by _ensure_columns + the one-time FTS backfill.
     """
     d = ensure_rect_dir()
     conn = sqlite3.connect(d / DB_FILE_NAME)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(_SCHEMA)
+    _ensure_columns(conn)
     _backfill_fts(conn)
     _seed_settings(conn)
     return conn

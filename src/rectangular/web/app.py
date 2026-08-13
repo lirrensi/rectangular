@@ -139,6 +139,28 @@ def api_reopen(ref: str) -> dict[str, Any]:
         raise HTTPException(status_code=400 if isinstance(e, (ValueError, PermissionError)) else 404, detail=str(e))
 
 
+class ClaimBody(BaseModel):
+    name: str | None = None
+
+
+@app.post("/api/tickets/{ref}/claim", status_code=200)
+def api_claim(ref: str, body: ClaimBody | None = None) -> dict[str, Any]:
+    tid = _get(ref)
+    try:
+        return core.claim(tid, role="user", name=body.name if body else None)
+    except (KeyError, ValueError, PermissionError) as e:
+        raise HTTPException(status_code=400 if isinstance(e, (ValueError, PermissionError)) else 404, detail=str(e))
+
+
+@app.post("/api/tickets/{ref}/unclaim", status_code=200)
+def api_unclaim(ref: str, body: ClaimBody | None = None) -> dict[str, Any]:
+    tid = _get(ref)
+    try:
+        return core.unclaim(tid, role="user", name=body.name if body else None)
+    except (KeyError, ValueError, PermissionError) as e:
+        raise HTTPException(status_code=400 if isinstance(e, (ValueError, PermissionError)) else 404, detail=str(e))
+
+
 @app.put("/api/tickets/{ref}/status")
 def api_status_update(ref: str, body: UpdateBody) -> dict[str, Any]:
     tid = _get(ref)
