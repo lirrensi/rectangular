@@ -67,6 +67,7 @@
   .reply input { flex: 1; background: var(--panel2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; }
   .reply button { background: var(--panel2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; cursor: pointer; font-weight: 600; }
   .reply .close { background: var(--amber); border-color: var(--amber); color: #3a2a00; }
+  .reply .reopen { background: var(--green); border-color: var(--green); color: #00331f; }
   .review-dot { display: inline-block; width: 8px; height: 8px; background: var(--amber); margin-right: 4px; }
   .ticket-actions { display: flex; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); align-items: center; }
   .ticket-actions button { background: transparent; border: 1px solid var(--border); color: var(--dim); padding: 4px 10px; cursor: pointer; font-size: 12px; }
@@ -166,6 +167,7 @@
                 <input x-model="replyText" @keydown.enter="reply(t)" placeholder="Write back ... (Enter = comment)">
                 <button @click="reply(t)">Comment</button>
                 <button class="close" @click="closeTicket(t)" x-show="t.state !== 'done'">Close</button>
+                <button class="reopen" @click="reopenTicket(t)" x-show="t.state === 'done'">Reopen</button>
               </div>
               <div class="ticket-actions">
                 <button class="danger" @click="deleteTicket(t)">🗑 Delete</button>
@@ -319,6 +321,18 @@ function rectApp() {
       const payload = body ? { body, name: this.userName || null } : { name: this.userName || null };
       this.replyText = '';
       await fetch('/api/tickets/' + t.no + '/close', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      await this.load();
+    },
+
+    async reopenTicket(t) {
+      const body = this.replyText.trim();
+      const payload = body ? { body, name: this.userName || null } : { name: this.userName || null };
+      this.replyText = '';
+      await fetch('/api/tickets/' + t.no + '/reopen', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
