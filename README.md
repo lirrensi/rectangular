@@ -20,6 +20,12 @@ That's it. The whole app — CLI + UI — installs as one command. No database s
 
 > Needs [uv](https://github.com/astral-sh/uv). Python 3.10+.
 
+## Add a skill for agents
+
+```bash
+npx skills install https://github.com/lirrensi/rectangular
+```
+
 ---
 
 ## Quick start
