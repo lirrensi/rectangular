@@ -289,13 +289,35 @@ function rectApp() {
     connected: true,
     lastSeen: 'never',
     _pingTimer: null,
+    _loading: false,
+    _loadToken: 0,
 
     async init() {
       this.applyTheme();
       await this.loadSettings();
       await this.load();
       this.ping();
-      this._pingTimer = setInterval(() => this.ping(), 3000);
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) this.poll();
+      });
+      this._pingTimer = setInterval(() => {
+        this.ping();
+        this.poll();
+      }, 3000);
+    },
+
+    async poll() {
+      // Data refresh — keeps the board fresh without a manual reload.
+      if (this._loading) return;                    // one in-flight poll at a time
+      if (document.hidden) return;                  // tab not visible — no point
+      const el = document.activeElement;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return; // don't yank the keyboard
+      this._loading = true;
+      try {
+        await this.load();
+      } finally {
+        this._loading = false;
+      }
     },
 
     setView(v) {
@@ -366,12 +388,15 @@ function rectApp() {
     switchTab(t) { this.tab = t; this.openId = null; this.gridOpenIds = {}; this.load(); },
 
     async load() {
+      const token = ++this._loadToken;
       const params = new URLSearchParams();
       if (this.tab === 'done') params.set('done', 'true');
       if (this.tab === 'review') params.set('review', 'true');
       const r = await fetch('/api/tickets?' + params.toString());
+      if (token !== this._loadToken) return; // a newer load superseded this one — drop stale data
       this.days = await r.json();
       const s = await (await fetch('/api/status')).json();
+      if (token !== this._loadToken) return;
       this.counts = { active: s.active_count, review: s.review_count, done: s.done_count };
       this.cwd = s.cwd || '';
     },
